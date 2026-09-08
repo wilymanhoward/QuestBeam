@@ -27,7 +27,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.QuestCast"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true">
+        android:networkSecurityConfig="@xml/network_security_config">
 
         <!-- Meta Quest Headset Compatibility -->
         <meta-data

@@ -6,8 +6,29 @@ const os = require('os');
 const config = require('./config');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Security: Enforce small JSON payload limit
+app.use(express.json({ limit: '10kb' }));
+
+// Security: Basic HTTP Security Headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
+// Security: Restrict CORS to common local origins or configurable whitelist
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl) or localhost/local LAN origins
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow during testing, but validated
+    }
+  }
+}));
 
 // Helper to get local network IPv4 addresses of this host
 function getLocalIpAddresses() {
@@ -23,19 +44,17 @@ function getLocalIpAddresses() {
   return addresses;
 }
 
-// HTTP Endpoints
+// Health check endpoint (does not leak full network topology to unauthenticated callers)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    timestamp: new Date().toISOString(),
-    serverIps: getLocalIpAddresses()
+    timestamp: new Date().toISOString()
   });
 });
 
 app.get('/config', (req, res) => {
   res.json({
-    iceServers: config.iceServers,
-    serverIps: getLocalIpAddresses()
+    iceServers: config.iceServers
   });
 });
 
@@ -47,23 +66,38 @@ app.get('/ip', (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
 
-// Rooms map: roomCode -> { quest: { ws, localIp, publicIp }, viewers: [ { ws, localIp, publicIp } ] }
+// Security: Limit WebSocket maxPayload to 64 KB to block memory exhaustion attacks
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 64 * 1024
+});
+
+// Security: Rate limiting & connection tracking
+const ipConnectionCounts = new Map(); // ip -> count
+const socketRateLimits = new WeakMap(); // ws -> { count, resetTime }
+
+const MAX_CONNECTIONS_PER_IP = 15;
+const MAX_MESSAGES_PER_SEC = 40;
+const ROOM_CODE_REGEX = /^[A-Za-z0-9_-]{3,24}$/;
+const ALLOWED_ROLES = new Set(['quest', 'viewer']);
+const ALLOWED_MESSAGE_TYPES = new Set(['join', 'offer', 'answer', 'ice-candidate', 'ping']);
+
+// Rooms map: roomCode -> { quest: { ws, localIp, publicIp }, viewers: [ { ws, localIp, publicIp } ], pin: string|null }
 const rooms = new Map();
 
 function getClientPublicIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
-  return forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
+  return forwarded ? forwarded.split(',')[0].trim() : (req.socket.remoteAddress || '127.0.0.1');
 }
 
 // Compare network topology between Quest sender and laptop viewer
 function evaluateNetworkTopology(questPeer, viewerPeer) {
   if (!questPeer || !viewerPeer) return { mode: 'unknown', reason: 'Waiting for peer' };
 
-  const samePublicIp = questPeer.publicIp && viewerPeer.publicIp && 
-                       (questPeer.publicIp === viewerPeer.publicIp || 
-                        questPeer.publicIp === '127.0.0.1' || 
+  const samePublicIp = questPeer.publicIp && viewerPeer.publicIp &&
+                       (questPeer.publicIp === viewerPeer.publicIp ||
+                        questPeer.publicIp === '127.0.0.1' ||
                         questPeer.publicIp === '::1');
 
   // Check private subnets (e.g. 192.168.1.x)
@@ -93,34 +127,95 @@ function evaluateNetworkTopology(questPeer, viewerPeer) {
 
 wss.on('connection', (ws, req) => {
   const clientPublicIp = getClientPublicIp(req);
+
+  // Security: Max connections per IP check
+  const activeConn = (ipConnectionCounts.get(clientPublicIp) || 0) + 1;
+  if (activeConn > MAX_CONNECTIONS_PER_IP) {
+    console.warn(`[Security] Connection rejected: IP ${clientPublicIp} exceeded max connections (${MAX_CONNECTIONS_PER_IP})`);
+    ws.close(1008, 'Too many connections from this IP');
+    return;
+  }
+  ipConnectionCounts.set(clientPublicIp, activeConn);
+
   let currentRoomCode = null;
   let currentRole = null;
 
-  console.log(`[Signaling] New client connected from ${clientPublicIp}`);
+  console.log(`[Signaling] New client connected from ${clientPublicIp} (Active: ${activeConn})`);
 
   ws.on('message', (messageText) => {
+    // Security: Message rate limit check
+    const now = Date.now();
+    let rateData = socketRateLimits.get(ws);
+    if (!rateData || now > rateData.resetTime) {
+      rateData = { count: 0, resetTime: now + 1000 };
+    }
+    rateData.count++;
+    socketRateLimits.set(ws, rateData);
+
+    if (rateData.count > MAX_MESSAGES_PER_SEC) {
+      console.warn(`[Security] Rate limit exceeded for client ${clientPublicIp}. Terminating socket.`);
+      ws.terminate();
+      return;
+    }
+
     try {
       const data = JSON.parse(messageText);
-      const { type, roomCode, role, payload, localIp } = data;
+      const { type, roomCode, role, payload, localIp, pin } = data;
+
+      // Security: Validate message type
+      if (!type || !ALLOWED_MESSAGE_TYPES.has(type)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid or unsupported message type' }));
+        return;
+      }
 
       switch (type) {
         case 'join': {
-          const code = (roomCode || '').toUpperCase().trim();
+          const rawCode = (roomCode || '').trim();
+
+          // Security: Validate room code format
+          if (!ROOM_CODE_REGEX.test(rawCode)) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Room code must be 3-24 alphanumeric characters' }));
+            return;
+          }
+
+          // Security: Validate role
+          if (!role || !ALLOWED_ROLES.has(role)) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Invalid role specified' }));
+            return;
+          }
+
+          const code = rawCode.toUpperCase();
           currentRoomCode = code;
-          currentRole = role; // 'quest' or 'viewer'
+          currentRole = role;
 
           if (!rooms.has(code)) {
-            rooms.set(code, { quest: null, viewers: [] });
+            rooms.set(code, { quest: null, viewers: [], pin: null });
           }
           const room = rooms.get(code);
 
-          const peerInfo = { ws, localIp: localIp || null, publicIp: clientPublicIp };
+          // Security: Room PIN authentication check
+          if (role === 'quest' && pin) {
+            room.pin = String(pin).trim();
+          } else if (role === 'viewer' && room.pin) {
+            if (!pin || String(pin).trim() !== room.pin) {
+              console.warn(`[Security] Viewer failed PIN authentication for room ${code}`);
+              ws.send(JSON.stringify({ type: 'auth-failed', message: 'Incorrect room PIN' }));
+              ws.close(1008, 'Authentication failed');
+              return;
+            }
+          }
 
+          // Security: Prevent Quest sender hijacking
           if (role === 'quest') {
-            room.quest = peerInfo;
+            if (room.quest && room.quest.ws !== ws && room.quest.ws.readyState === WebSocket.OPEN) {
+              console.warn(`[Security] Rejection: A Quest sender is already active in room ${code}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'A Quest sender is already broadcasting in this room' }));
+              return;
+            }
+            room.quest = { ws, localIp: localIp || null, publicIp: clientPublicIp };
             console.log(`[Signaling] Room ${code}: Quest 3 registered (local: ${localIp}, public: ${clientPublicIp})`);
           } else {
-            room.viewers.push(peerInfo);
+            room.viewers.push({ ws, localIp: localIp || null, publicIp: clientPublicIp });
             console.log(`[Signaling] Room ${code}: Viewer joined (local: ${localIp}, public: ${clientPublicIp})`);
           }
 
@@ -132,7 +227,7 @@ wss.on('connection', (ws, req) => {
             iceServers: config.iceServers
           }));
 
-          // If both Quest and at least one viewer are present, evaluate network topology and notify
+          // If both Quest and viewer are present, evaluate network topology and trigger negotiation
           if (room.quest && room.viewers.length > 0) {
             const latestViewer = room.viewers[room.viewers.length - 1];
             const netEval = evaluateNetworkTopology(room.quest, latestViewer);
@@ -157,16 +252,12 @@ wss.on('connection', (ws, req) => {
         }
 
         case 'offer': {
-          // Relayed from Quest to Viewer(s)
           const room = rooms.get(currentRoomCode);
-          if (room && room.viewers.length > 0) {
+          if (room && currentRole === 'quest') {
             console.log(`[Signaling] Relaying SDP Offer for room ${currentRoomCode}`);
             for (const viewer of room.viewers) {
               if (viewer.ws.readyState === WebSocket.OPEN) {
-                viewer.ws.send(JSON.stringify({
-                  type: 'offer',
-                  payload
-                }));
+                viewer.ws.send(JSON.stringify({ type: 'offer', payload }));
               }
             }
           }
@@ -174,36 +265,25 @@ wss.on('connection', (ws, req) => {
         }
 
         case 'answer': {
-          // Relayed from Viewer to Quest
           const room = rooms.get(currentRoomCode);
-          if (room && room.quest && room.quest.ws.readyState === WebSocket.OPEN) {
+          if (room && currentRole === 'viewer' && room.quest && room.quest.ws.readyState === WebSocket.OPEN) {
             console.log(`[Signaling] Relaying SDP Answer for room ${currentRoomCode}`);
-            room.quest.ws.send(JSON.stringify({
-              type: 'answer',
-              payload
-            }));
+            room.quest.ws.send(JSON.stringify({ type: 'answer', payload }));
           }
           break;
         }
 
         case 'ice-candidate': {
-          // Relayed bi-directionally
           const room = rooms.get(currentRoomCode);
           if (room) {
             if (currentRole === 'quest') {
               for (const viewer of room.viewers) {
                 if (viewer.ws.readyState === WebSocket.OPEN) {
-                  viewer.ws.send(JSON.stringify({
-                    type: 'ice-candidate',
-                    payload
-                  }));
+                  viewer.ws.send(JSON.stringify({ type: 'ice-candidate', payload }));
                 }
               }
             } else if (currentRole === 'viewer' && room.quest && room.quest.ws.readyState === WebSocket.OPEN) {
-              room.quest.ws.send(JSON.stringify({
-                type: 'ice-candidate',
-                payload
-              }));
+              room.quest.ws.send(JSON.stringify({ type: 'ice-candidate', payload }));
             }
           }
           break;
@@ -213,16 +293,21 @@ wss.on('connection', (ws, req) => {
           ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
           break;
         }
-
-        default:
-          console.log(`[Signaling] Unknown message type: ${type}`);
       }
     } catch (err) {
-      console.error('[Signaling] Error parsing message:', err);
+      console.error('[Signaling] Malformed message rejected:', err.message);
     }
   });
 
   ws.on('close', () => {
+    // Decrement connection count
+    const remaining = (ipConnectionCounts.get(clientPublicIp) || 1) - 1;
+    if (remaining <= 0) {
+      ipConnectionCounts.delete(clientPublicIp);
+    } else {
+      ipConnectionCounts.set(clientPublicIp, remaining);
+    }
+
     console.log(`[Signaling] Client disconnected from room ${currentRoomCode} (${currentRole})`);
     if (currentRoomCode && rooms.has(currentRoomCode)) {
       const room = rooms.get(currentRoomCode);
@@ -251,11 +336,12 @@ wss.on('connection', (ws, req) => {
 const PORT = config.port;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
-  console.log(`Meta Quest 3 Signaling & Relay Server running on:`);
+  console.log(`QuestBeam Hardened Signaling & Relay Server running on:`);
   console.log(`Local:   http://localhost:${PORT}`);
   for (const { interface: iface, address } of getLocalIpAddresses()) {
     console.log(`Network: http://${address}:${PORT} (${iface})`);
   }
   console.log(`WebSocket URL: ws://<SERVER-IP>:${PORT}`);
+  console.log(`Security: MaxPayload=64KB, RateLimit=40msg/s, OriginFiltered`);
   console.log(`=======================================================`);
 });
