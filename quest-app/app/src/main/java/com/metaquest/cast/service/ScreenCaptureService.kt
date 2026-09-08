@@ -106,7 +106,6 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
         _streamMetrics.value = StreamMetrics(networkMode = NetworkMode.IDLE)
 
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     // --- Signaling Listener Callbacks ---

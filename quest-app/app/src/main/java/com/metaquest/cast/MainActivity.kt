@@ -40,11 +40,17 @@ class MainActivity : ComponentActivity() {
     private var isScanningNetwork by mutableStateOf(false)
     private var isSettingsOpen by mutableStateOf(false)
 
+    private var pendingProjectionData: Intent? = null
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val localBinder = binder as ScreenCaptureService.LocalBinder
             captureService = localBinder.getService()
             isServiceBound = true
+            pendingProjectionData?.let { data ->
+                captureService?.startCasting(data, currentConfig)
+                pendingProjectionData = null
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -61,7 +67,12 @@ class MainActivity : ComponentActivity() {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java)
             ContextCompat.startForegroundService(this, serviceIntent)
 
-            captureService?.startCasting(result.data!!, currentConfig)
+            if (captureService != null) {
+                captureService?.startCasting(result.data!!, currentConfig)
+            } else {
+                pendingProjectionData = result.data!!
+                bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+            }
             Toast.makeText(this, "Screen Mirroring Started!", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()

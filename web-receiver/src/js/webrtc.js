@@ -58,9 +58,11 @@ class WebRTCReceiver {
 
     this.pc.ontrack = (event) => {
       console.log('[WebRTC] Received remote track:', event.track.kind);
-      const stream = (event.streams && event.streams[0]) ? event.streams[0] : this.remoteStream;
+      this.remoteStream = new MediaStream();
+      let stream = (event.streams && event.streams[0]) ? event.streams[0] : this.remoteStream;
       if (!event.streams || !event.streams[0]) {
         this.remoteStream.addTrack(event.track);
+        stream = this.remoteStream;
       }
 
       // Tune video receiver for ultra-low latency playback (Quest 3 real-time mirror)
@@ -80,9 +82,9 @@ class WebRTCReceiver {
   }
 
   async handleOffer(offerSdp) {
-    if (!this.pc) {
-      this.initPeerConnection();
-    }
+    // ALWAYS cleanly tear down previous connection and create a fresh one for each new stream session
+    this.close();
+    this.initPeerConnection();
 
     console.log('[WebRTC] Setting remote description (Offer)...');
     await this.pc.setRemoteDescription(new RTCSessionDescription({
@@ -112,7 +114,14 @@ class WebRTCReceiver {
       this.statsMonitor = null;
     }
     if (this.pc) {
-      this.pc.close();
+      try {
+        this.pc.ontrack = null;
+        this.pc.onicecandidate = null;
+        this.pc.onconnectionstatechange = null;
+        this.pc.close();
+      } catch (e) {
+        console.warn('[WebRTC] Error closing peer connection:', e);
+      }
       this.pc = null;
     }
     this.remoteStream = new MediaStream();

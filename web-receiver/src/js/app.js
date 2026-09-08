@@ -283,6 +283,14 @@ function initWebRTC() {
       if (stats.width > 0) {
         elements.hudRes.textContent = `${stats.width}x${stats.height}`;
         elements.statResolution.textContent = `${stats.width}x${stats.height}`;
+        
+        // Failsafe: if video frames are decoding but standby screen is showing, make video visible
+        if (elements.remoteVideo.srcObject && !elements.remoteVideo.classList.contains('visible')) {
+          elements.remoteVideo.classList.add('visible');
+          elements.standbyScreen.style.display = 'none';
+          elements.viewportCard.classList.add('active-stream');
+          state.isStreaming = true;
+        }
       }
       elements.statFps.textContent = `${stats.fps} fps (${stats.codec})`;
       elements.statRtt.textContent = `${stats.rttMs} ms`;
@@ -299,6 +307,10 @@ function initWebRTC() {
 
 function handleStreamStop(reason) {
   state.isStreaming = false;
+  if (state.webrtc) {
+    state.webrtc.close();
+    state.webrtc = null;
+  }
   elements.remoteVideo.classList.remove('visible');
   elements.remoteVideo.srcObject = null;
   elements.standbyScreen.style.display = 'flex';
