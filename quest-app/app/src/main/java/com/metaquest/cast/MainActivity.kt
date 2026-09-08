@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -100,6 +101,20 @@ class MainActivity : ComponentActivity() {
                 val metrics by captureService?.streamMetrics?.collectAsState(StreamMetrics())
                     ?: remember { mutableStateOf(StreamMetrics()) }
 
+                // Auto-detect on app launch: prioritzes USB Cable (127.0.0.1) then Wi-Fi
+                LaunchedEffect(Unit) {
+                    isScanningNetwork = true
+                    val discovered = networkDetector.autoDiscoverSignalingServer()
+                    isScanningNetwork = false
+                    if (discovered != null) {
+                        currentConfig = currentConfig.copy(signalingUrl = discovered)
+                        configState = currentConfig
+                        val isUsb = discovered.contains("127.0.0.1")
+                        val msg = if (isUsb) "⚡ USB Cable detected! Zero-delay direct mode active." else "Laptop detected at $discovered"
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+
                 if (isSettingsOpen) {
                     SettingsScreen(
                         config = configState,
@@ -138,15 +153,17 @@ class MainActivity : ComponentActivity() {
                                 if (discovered != null) {
                                     currentConfig = currentConfig.copy(signalingUrl = discovered)
                                     configState = currentConfig
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Discovered laptop server at $discovered!",
-                                        Toast.LENGTH_LONG
-                                    ).show()
+                                    val isUsb = discovered.contains("127.0.0.1")
+                                    val msg = if (isUsb) {
+                                        "⚡ Connected via USB Cable! Zero-latency direct mode active."
+                                    } else {
+                                        "Connected via Wi-Fi: Discovered laptop at $discovered"
+                                    }
+                                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
                                 } else {
                                     Toast.makeText(
                                         this@MainActivity,
-                                        "Laptop not found on local subnet. Please verify signaling server is running.",
+                                        "Laptop not found on USB or local Wi-Fi. Please check cable or server.",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }

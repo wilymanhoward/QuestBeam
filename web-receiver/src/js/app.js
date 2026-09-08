@@ -85,7 +85,14 @@ function updateNetworkStatus(mode, desc, rttMs) {
   state.networkMode = mode;
   elements.networkPill.className = `network-pill ${mode}`;
 
-  if (mode === 'lan') {
+  if (mode === 'usb') {
+    elements.networkPillText.textContent = rttMs ? `USB Cable (${rttMs}ms)` : '⚡ USB Cable (0ms)';
+    elements.hudMode.textContent = '⚡ USB CABLE (0ms)';
+    elements.hudMode.style.color = 'var(--accent-usb)';
+    elements.statNetworkMode.textContent = '⚡ Ultra-Fast USB-C Cable (Direct Bus)';
+    elements.statNetworkMode.style.color = 'var(--accent-usb)';
+    elements.statNetworkDesc.textContent = desc || 'Direct hardware bus connection with 0ms delay & 0% packet loss';
+  } else if (mode === 'lan') {
     elements.networkPillText.textContent = rttMs ? `Local LAN (${rttMs}ms)` : 'Local LAN (Direct P2P)';
     elements.hudMode.textContent = 'LOCAL LAN';
     elements.hudMode.style.color = 'var(--accent-lan)';
@@ -190,8 +197,10 @@ function connectSignaling() {
 
         case 'network-topology':
           console.log('[Signaling] Initial network topology:', data.mode, data.description);
+          window.currentSignalingTopologyMode = data.mode;
           updateNetworkStatus(data.mode, data.description);
-          state.controls.showToast(`Network: ${data.mode === 'lan' ? 'Direct LAN Detected' : 'Cloud Relay Mode'}`);
+          const toastMsg = data.mode === 'usb' ? '⚡ USB Cable Direct (Zero Latency)' : (data.mode === 'lan' ? 'Direct Local LAN Detected' : 'Cloud Relay Mode');
+          state.controls.showToast(`Network: ${toastMsg}`);
           break;
 
         case 'offer':

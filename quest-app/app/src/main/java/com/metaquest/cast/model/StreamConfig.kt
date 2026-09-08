@@ -42,6 +42,7 @@ enum class QualityPreset(
  */
 enum class NetworkMode(val label: String) {
     IDLE("Disconnected"),
+    USB("USB Cable Direct (Zero Latency)"),
     LAN("Local Network (Direct P2P)"),
     CLOUD("Cloud WebRTC Relay (TURN)")
 }

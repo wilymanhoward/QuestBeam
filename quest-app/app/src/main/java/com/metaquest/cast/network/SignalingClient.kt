@@ -71,7 +71,11 @@ class SignalingClient(
                         "network-topology" -> {
                             val modeStr = msg.get("mode")?.asString ?: "unknown"
                             val desc = msg.get("description")?.asString ?: ""
-                            val mode = if (modeStr == "lan") NetworkMode.LAN else NetworkMode.CLOUD
+                            val mode = when (modeStr) {
+                                "usb" -> NetworkMode.USB
+                                "lan" -> NetworkMode.LAN
+                                else -> NetworkMode.CLOUD
+                            }
                             listener.onNetworkTopologyDetected(mode, desc)
                         }
                         "viewer-ready" -> {

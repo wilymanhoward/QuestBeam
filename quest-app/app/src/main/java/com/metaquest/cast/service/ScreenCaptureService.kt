@@ -87,7 +87,11 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
             startForeground(notificationId, notification)
         }
 
-        val localIp = networkDetector?.getLocalIpAddress() ?: "127.0.0.1"
+        val localIp = if (config.signalingUrl.contains("127.0.0.1") || config.signalingUrl.contains("localhost")) {
+            "127.0.0.1"
+        } else {
+            networkDetector?.getLocalIpAddress() ?: "127.0.0.1"
+        }
 
         // Connect to Signaling Server
         signalingClient?.disconnect()

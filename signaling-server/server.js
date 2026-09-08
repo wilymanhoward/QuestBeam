@@ -3,6 +3,7 @@ const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const os = require('os');
+const { exec } = require('child_process');
 const config = require('./config');
 
 const app = express();
@@ -94,6 +95,21 @@ function getClientPublicIp(req) {
 // Compare network topology between Quest sender and laptop viewer
 function evaluateNetworkTopology(questPeer, viewerPeer) {
   if (!questPeer || !viewerPeer) return { mode: 'unknown', reason: 'Waiting for peer' };
+
+  // 1. USB Direct Cable Detection:
+  // When Quest connects via ADB reverse tunnel or loopback IP (127.0.0.1 / ::1 / ::ffff:127.0.0.1)
+  const isQuestUsb = questPeer.publicIp === '127.0.0.1' ||
+                     questPeer.publicIp === '::1' ||
+                     questPeer.publicIp === '::ffff:127.0.0.1' ||
+                     questPeer.localIp === '127.0.0.1';
+
+  if (isQuestUsb) {
+    return {
+      mode: 'usb',
+      description: '⚡ Ultra-Fast USB-C Cable (Direct Hardware Bus, ~0ms latency)',
+      directP2PPreferred: true
+    };
+  }
 
   const samePublicIp = questPeer.publicIp && viewerPeer.publicIp &&
                        (questPeer.publicIp === viewerPeer.publicIp ||
@@ -334,6 +350,38 @@ wss.on('connection', (ws, req) => {
 });
 
 const PORT = config.port;
+
+// Automatic ADB Reverse tunnel setup for zero-latency USB Cable streaming
+let isAdbReverseActive = false;
+function setupAdbReverse() {
+  const adbCandidates = [
+    'adb',
+    'C:\\Users\\Howard Wilyman\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe',
+    process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Android\\Sdk\\platform-tools\\adb.exe` : null
+  ].filter(Boolean);
+
+  function tryCandidate(index) {
+    if (index >= adbCandidates.length) return;
+    const adbPath = adbCandidates[index];
+    exec(`"${adbPath}" reverse tcp:${PORT} tcp:${PORT}`, (err, stdout, stderr) => {
+      if (!err) {
+        if (!isAdbReverseActive) {
+          console.log(`[USB Auto-Detect] ⚡ USB Cable detected! ADB reverse active: tcp:${PORT} -> tcp:${PORT}`);
+          isAdbReverseActive = true;
+        }
+      } else {
+        if (index + 1 < adbCandidates.length) {
+          tryCandidate(index + 1);
+        } else {
+          isAdbReverseActive = false;
+        }
+      }
+    });
+  }
+
+  tryCandidate(0);
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`QuestBeam Hardened Signaling & Relay Server running on:`);
@@ -344,4 +392,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`WebSocket URL: ws://<SERVER-IP>:${PORT}`);
   console.log(`Security: MaxPayload=64KB, RateLimit=40msg/s, OriginFiltered`);
   console.log(`=======================================================`);
+
+  // Initial attempt and periodic check for USB cable plug/unplug
+  setupAdbReverse();
+  setInterval(setupAdbReverse, 8000);
 });

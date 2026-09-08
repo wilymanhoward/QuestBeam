@@ -16,7 +16,8 @@
   --border-glow: 0 0 20px rgba(76, 126, 255, 0.25);
 
   --accent-meta: #4C7EFF;
-  --accent-meta-hover: #6592FF;
+  --accent-usb: #C084FC;
+  --accent-usb-glow: 0 0 16px rgba(192, 132, 252, 0.6);
   --accent-lan: #00E599;
   --accent-lan-glow: 0 0 16px rgba(0, 229, 153, 0.4);
   --accent-cloud: #00D2FF;
@@ -159,6 +160,18 @@ body {
 /* Mode: Disconnected */
 .network-pill.idle .status-dot {
   background: var(--text-muted);
+}
+
+/* Mode: USB Cable Direct */
+.network-pill.usb {
+  background: rgba(192, 132, 252, 0.15);
+  border-color: rgba(192, 132, 252, 0.45);
+  color: #E9D5FF;
+}
+.network-pill.usb .status-dot {
+  background: var(--accent-usb);
+  box-shadow: var(--accent-usb-glow);
+  animation: pulse-dot 1.2s infinite;
 }
 
 /* Mode: Local LAN */

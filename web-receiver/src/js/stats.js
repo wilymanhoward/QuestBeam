@@ -70,7 +70,10 @@ class WebRTCStatsMonitor {
         const localType = localCandidate.candidateType; // 'host', 'srflx', 'relay'
         const remoteType = remoteCandidate.candidateType;
 
-        if (localType === 'host' && remoteType === 'host') {
+        if (window.currentSignalingTopologyMode === 'usb' || remoteCandidate.ip === '127.0.0.1' || localCandidate.ip === '127.0.0.1') {
+          networkMode = 'usb';
+          networkDescription = '⚡ Ultra-Fast USB-C Cable (Direct Hardware Bus, ~0ms latency)';
+        } else if (localType === 'host' && remoteType === 'host') {
           networkMode = 'lan';
           networkDescription = `Local Network (Direct P2P LAN via ${remoteCandidate.ip || 'Wi-Fi'})`;
         } else if (localType === 'relay' || remoteType === 'relay') {

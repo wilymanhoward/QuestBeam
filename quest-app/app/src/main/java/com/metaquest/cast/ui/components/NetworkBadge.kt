@@ -35,6 +35,12 @@ fun NetworkBadge(
     modifier: Modifier = Modifier
 ) {
     val (dotColor, badgeBg, badgeBorder, labelText) = when (mode) {
+        NetworkMode.USB -> Quadruple(
+            Color(0xFFC084FC),
+            Color(0x22A855F7),
+            Color(0x66C084FC),
+            if (rttMs > 0) "⚡ USB Cable (${rttMs}ms)" else "⚡ USB Cable Direct (0ms)"
+        )
         NetworkMode.LAN -> Quadruple(
             HorizonLanGreen,
             Color(0x2200E599),

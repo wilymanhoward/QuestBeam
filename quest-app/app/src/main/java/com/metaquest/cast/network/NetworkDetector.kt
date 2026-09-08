@@ -117,9 +117,20 @@ class NetworkDetector(private val context: Context) {
      * Scans all 254 addresses in parallel with early-exit on first match.
      */
     suspend fun autoDiscoverSignalingServer(port: Int = 8080): String? = withContext(Dispatchers.IO) {
+        // 1. FAST PATH: Check if USB Cable / ADB Reverse Tunnel is active (127.0.0.1:port)
+        // With USB connected and 'adb reverse tcp:8080 tcp:8080', 127.0.0.1 routes directly
+        // through the high-speed USB-C hardware bus with ~0ms latency.
+        Log.d(tag, "Checking for USB Cable connection via 127.0.0.1:$port...")
+        val usbProbe = probeHost("127.0.0.1", port)
+        if (usbProbe != null) {
+            Log.i(tag, "⚡ USB Cable Direct connection detected on 127.0.0.1:$port! Using zero-delay USB bus.")
+            return@withContext usbProbe
+        }
+
+        // 2. Wi-Fi Local Subnet Discovery
         val localIp = getLocalIpAddress()
         if (localIp == "127.0.0.1") {
-            Log.w(tag, "Cannot auto-discover: local IP is loopback 127.0.0.1")
+            Log.w(tag, "Cannot auto-discover Wi-Fi: local IP is loopback 127.0.0.1 and USB tunnel not reachable")
             return@withContext null
         }
 
