@@ -66,6 +66,7 @@ function setRoomCode(code) {
   elements.roomCodeText.textContent = state.roomCode;
   elements.standbyRoomCode.textContent = state.roomCode;
   elements.qrRoomCodeText.textContent = state.roomCode;
+  localStorage.setItem('quest_room_code', state.roomCode);
   window.location.hash = `room=${state.roomCode}`;
   renderQrCode(state.roomCode);
 }
@@ -304,9 +305,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize Stream Controls
   state.controls = new StreamControls(elements.remoteVideo, elements.viewportCard);
 
-  // Check URL hash for pre-selected room code (e.g. #room=Q3-9842)
+  // Check URL hash for pre-selected room code (e.g. #room=Q3-CAST), or use saved / default
   const hashMatch = window.location.hash.match(/room=([A-Za-z0-9_-]+)/);
-  const initialCode = hashMatch ? hashMatch[1] : generateRoomCode();
+  const initialCode = hashMatch ? hashMatch[1] : (localStorage.getItem('quest_room_code') || 'Q3-CAST');
   setRoomCode(initialCode);
 
   // Load Settings into inputs
