@@ -2,10 +2,19 @@
  * Meta Quest 3 Web Receiver - Main Application Orchestrator
  */
 
+function getDefaultSignalingUrl() {
+  const saved = localStorage.getItem('quest_signaling_url');
+  if (saved) return saved;
+  if (window.location.hostname.includes('web.app') || window.location.hostname.includes('firebaseapp.com')) {
+    return 'ws://localhost:8080';
+  }
+  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname || 'localhost'}:8080`;
+}
+
 // Application State
 const state = {
   roomCode: '',
-  signalingUrl: localStorage.getItem('quest_signaling_url') || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname || 'localhost'}:8080`,
+  signalingUrl: getDefaultSignalingUrl(),
   stunUrl: localStorage.getItem('quest_stun_url') || 'stun:stun.l.google.com:19302',
   turnUrl: localStorage.getItem('quest_turn_url') || '',
   ws: null,

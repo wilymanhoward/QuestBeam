@@ -7,11 +7,14 @@
 ![Architecture](https://img.shields.io/badge/Architecture-100%25%20Native%20Kotlin%20(No%20Unity)-7F52FF?logo=kotlin&logoColor=white)
 ![UI](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)
 ![Streaming](https://img.shields.io/badge/Streaming-WebRTC%20Hardware%20Accelerated-00C49F)
+![Website](https://img.shields.io/badge/Live%20Receiver-questbeam.web.app-FFCA28?logo=firebase&logoColor=black)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
 **High-performance, ultra-low latency wireless screen sharing from Meta Quest 3 directly to any laptop web browser.**
 
-[Features](#-key-features) • [Architecture](#-system-architecture) • [Components](#-repository-structure) • [Quick Start](#-quick-start) • [Performance](#-performance--latency) • [License](#-license)
+🌐 **Live Web Receiver:** [https://questbeam.web.app](https://questbeam.web.app)
+
+[Live Demo](https://questbeam.web.app) • [Features](#-key-features) • [Architecture](#-system-architecture) • [Components](#-repository-structure) • [Quick Start](#-quick-start) • [Performance](#-performance--latency) • [License](#-license)
 
 </div>
 
