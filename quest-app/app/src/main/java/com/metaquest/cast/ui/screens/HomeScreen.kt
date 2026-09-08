@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.metaquest.cast.model.NetworkMode
 import com.metaquest.cast.model.StreamMetrics
 import com.metaquest.cast.ui.components.ButtonVariant
 import com.metaquest.cast.ui.components.NetworkBadge
@@ -55,8 +56,20 @@ fun HomeScreen(
     onAutoDetectClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isDetecting: Boolean = false,
-    localIpAddress: String = "192.168.0.x"
+    localIpAddress: String = "192.168.0.x",
+    isUsbConnected: Boolean = false,
+    signalingUrl: String = "",
+    connectionStatus: String? = null
 ) {
+    val isUsbMode = isUsbConnected || signalingUrl.contains("127.0.0.1") || signalingUrl.contains("localhost")
+    val effectiveMode = if (isStreaming) {
+        metrics.networkMode
+    } else if (isUsbMode) {
+        NetworkMode.USB
+    } else {
+        NetworkMode.IDLE
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -94,7 +107,7 @@ fun HomeScreen(
                         color = HorizonTextPrimary
                     )
                     Text(
-                        text = "Meta Quest 3 Screen Mirror • IP: $localIpAddress",
+                        text = if (isUsbMode) "Meta Quest 3 Screen Mirror • ⚡ USB-C Direct Bus" else "Meta Quest 3 Screen Mirror • IP: $localIpAddress",
                         fontSize = 12.sp,
                         color = HorizonTextMuted
                     )
@@ -103,8 +116,8 @@ fun HomeScreen(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 NetworkBadge(
-                    mode = metrics.networkMode,
-                    rttMs = metrics.rttMs
+                    mode = effectiveMode,
+                    rttMs = if (isStreaming) metrics.rttMs else 0
                 )
 
                 IconButton(
@@ -128,7 +141,8 @@ fun HomeScreen(
                 roomCode = roomCode,
                 onRoomCodeChange = onRoomCodeChange,
                 onAutoDetectClick = onAutoDetectClick,
-                isDetecting = isDetecting
+                isDetecting = isDetecting,
+                statusMessage = connectionStatus
             )
 
             Spacer(modifier = Modifier.height(16.dp))

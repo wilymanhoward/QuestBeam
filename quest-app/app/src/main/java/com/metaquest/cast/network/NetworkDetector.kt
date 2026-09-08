@@ -40,17 +40,35 @@ class NetworkDetector(private val context: Context) {
     private val tag = "NetworkDetector"
 
     /**
-     * Check if USB cable is physically connected to the headset
+     * Check if USB cable is physically connected to the headset.
+     * Uses Android's sticky USB_STATE intent (works across standard USB and USB-PD data connections on Horizon OS)
+     * and battery charging status.
      */
     fun isUsbCablePlugged(): Boolean {
-        return try {
-            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-            plugged == BatteryManager.BATTERY_PLUGGED_USB
+        try {
+            // 1. Check Android's canonical sticky USB_STATE broadcast intent
+            val usbFilter = IntentFilter("android.hardware.usb.action.USB_STATE")
+            val usbIntent = context.registerReceiver(null, usbFilter)
+            if (usbIntent != null) {
+                val isConnected = usbIntent.getBooleanExtra("connected", false)
+                val isConfigured = usbIntent.getBooleanExtra("configured", false)
+                if (isConnected || isConfigured) {
+                    Log.d(tag, "USB cable physically detected via USB_STATE (connected=$isConnected, configured=$isConfigured)")
+                    return true
+                }
+            }
+
+            // 2. Check Battery status: Meta Quest 3 on USB-C PD can report BATTERY_PLUGGED_AC or BATTERY_PLUGGED_USB
+            val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val plugged = batteryIntent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
+            if (plugged == BatteryManager.BATTERY_PLUGGED_USB || plugged == BatteryManager.BATTERY_PLUGGED_AC) {
+                Log.d(tag, "USB cable connection detected via BatteryManager (plugged=$plugged)")
+                return true
+            }
         } catch (e: Exception) {
             Log.w(tag, "Could not check USB state: ${e.message}")
-            false
         }
+        return false
     }
 
     /**
@@ -209,7 +227,11 @@ class NetworkDetector(private val context: Context) {
         Log.d(tag, "Beginning server discovery (USB Cable Physically Plugged: $usbPlugged)...")
 
         // 1. FAST PATH: Check if USB Cable / ADB Reverse Tunnel is active (127.0.0.1:port)
-        val usbProbe = probeHost("127.0.0.1", port, timeoutMs = 400)
+        var usbProbe = probeHost("127.0.0.1", port, timeoutMs = 1200)
+        if (usbProbe == null && usbPlugged) {
+            kotlinx.coroutines.delay(250)
+            usbProbe = probeHost("127.0.0.1", port, timeoutMs = 1500)
+        }
         if (usbProbe != null) {
             Log.i(tag, "⚡ USB Cable Direct connection active on 127.0.0.1:$port (Room: ${usbProbe.second})! Zero-delay mode ready.")
             return@withContext DiscoveryResult(

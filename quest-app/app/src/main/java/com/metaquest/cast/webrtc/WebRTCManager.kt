@@ -59,8 +59,10 @@ class WebRTCManager(
     private var capturer: MediaProjectionCapturer? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
 
-    private var statsJob: Job? = null
+    var isUsbMode: Boolean = false
+
     private val scope = CoroutineScope(Dispatchers.Main)
+    private var statsJob: Job? = null
 
     init {
         initPeerConnectionFactory()
@@ -74,8 +76,8 @@ class WebRTCManager(
 
         val encoderFactory = DefaultVideoEncoderFactory(
             eglBase.eglBaseContext,
-            true, // Enable Snapdragon XR2 Gen 2 hardware acceleration
-            true
+            true, // enableIntelVp8Encoder
+            true  // enableH264HighProfile
         )
         val decoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
 
@@ -95,7 +97,11 @@ class WebRTCManager(
             PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
         )
     ) {
-        stopStreaming()
+        // Clean up previous peer connection and stats polling, but keep active capturer if already running
+        statsJob?.cancel()
+        statsJob = null
+        peerConnection?.close()
+        peerConnection = null
 
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -125,28 +131,33 @@ class WebRTCManager(
             override fun onTrack(transceiver: org.webrtc.RtpTransceiver?) {}
         })
 
-        // Setup Video Track
-        surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-        videoSource = factory?.createVideoSource(true)
+        // Setup Video Track only once per permission session to avoid Android 14 MediaProjection reuse SecurityException
+        if (capturer == null || videoTrack == null) {
+            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
+            videoSource = factory?.createVideoSource(true)
 
-        capturer = MediaProjectionCapturer(permissionData, object : MediaProjection.Callback() {
-            override fun onStop() {
-                Log.d(tag, "MediaProjection stopped by system")
-            }
-        })
-        capturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
-        capturer?.startCapture(qualityPreset.width, qualityPreset.height, qualityPreset.fps)
+            capturer = MediaProjectionCapturer(permissionData, object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.d(tag, "MediaProjection stopped by system")
+                }
+            })
+            capturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
+            capturer?.startCapture(qualityPreset.width, qualityPreset.height, qualityPreset.fps)
 
-        videoTrack = factory?.createVideoTrack("ARDAMSv0", videoSource)
-        videoTrack?.setEnabled(true)
+            videoTrack = factory?.createVideoTrack("ARDAMSv0", videoSource)
+            videoTrack?.setEnabled(true)
+        }
+
         peerConnection?.addTrack(videoTrack, listOf("ARDAMS"))
 
         // Setup Audio Track if enabled
         if (includeAudio) {
-            val audioConstraints = MediaConstraints()
-            audioSource = factory?.createAudioSource(audioConstraints)
-            audioTrack = factory?.createAudioTrack("ARDAMSa0", audioSource)
-            audioTrack?.setEnabled(true)
+            if (audioTrack == null) {
+                val audioConstraints = MediaConstraints()
+                audioSource = factory?.createAudioSource(audioConstraints)
+                audioTrack = factory?.createAudioTrack("ARDAMSa0", audioSource)
+                audioTrack?.setEnabled(true)
+            }
             peerConnection?.addTrack(audioTrack, listOf("ARDAMS"))
         }
 
@@ -236,7 +247,9 @@ class WebRTCManager(
                             val localType = local?.members?.get("candidateType") as? String
                             val remoteType = remote?.members?.get("candidateType") as? String
 
-                            if (localType == "host" && remoteType == "host") {
+                            if (isUsbMode) {
+                                currentMode = NetworkMode.USB
+                            } else if (localType == "host" && remoteType == "host") {
                                 currentMode = NetworkMode.LAN
                             } else if (localType == "relay" || remoteType == "relay") {
                                 currentMode = NetworkMode.CLOUD
@@ -259,6 +272,13 @@ class WebRTCManager(
                         }
                     }
 
+                    val netDescription = when (currentMode) {
+                        NetworkMode.USB -> "⚡ Ultra-Fast USB-C Cable (Direct Bus, 0ms)"
+                        NetworkMode.LAN -> "Local Wi-Fi P2P"
+                        NetworkMode.CLOUD -> "Cloud TURN Relay"
+                        else -> "Standby"
+                    }
+
                     listener.onStreamMetricsUpdated(
                         StreamMetrics(
                             fps = preset.fps,
@@ -266,7 +286,7 @@ class WebRTCManager(
                             rttMs = rttMs,
                             resolution = "${preset.width}x${preset.height}",
                             networkMode = currentMode,
-                            networkDescription = if (currentMode == NetworkMode.LAN) "Local Wi-Fi P2P" else "Cloud TURN Relay"
+                            networkDescription = netDescription
                         )
                     )
                 }

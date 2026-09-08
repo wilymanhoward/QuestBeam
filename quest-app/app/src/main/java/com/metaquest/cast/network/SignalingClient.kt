@@ -48,12 +48,14 @@ class SignalingClient(
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(tag, "WebSocket connected. Joining room $currentRoomCode as 'quest'")
+                val isUsb = signalingUrl.contains("127.0.0.1") || signalingUrl.contains("localhost")
+                Log.d(tag, "WebSocket connected (isUsb=$isUsb). Joining room $currentRoomCode as 'quest'")
                 val joinMsg = JsonObject().apply {
                     addProperty("type", "join")
                     addProperty("roomCode", currentRoomCode)
                     addProperty("role", "quest")
-                    addProperty("localIp", localIp)
+                    addProperty("localIp", if (isUsb) "127.0.0.1" else localIp)
+                    addProperty("isUsb", isUsb)
                 }
                 webSocket.send(joinMsg.toString())
             }

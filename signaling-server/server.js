@@ -117,10 +117,12 @@ function evaluateNetworkTopology(questPeer, viewerPeer) {
 
   // 1. USB Direct Cable Detection:
   // When Quest connects via ADB reverse tunnel or loopback IP (127.0.0.1 / ::1 / ::ffff:127.0.0.1)
-  const isQuestUsb = questPeer.publicIp === '127.0.0.1' ||
+  const isQuestUsb = Boolean(questPeer.isUsb) ||
+                     questPeer.publicIp === '127.0.0.1' ||
                      questPeer.publicIp === '::1' ||
                      questPeer.publicIp === '::ffff:127.0.0.1' ||
-                     questPeer.localIp === '127.0.0.1';
+                     questPeer.localIp === '127.0.0.1' ||
+                     (questPeer.publicIp && questPeer.publicIp.includes('127.0.0.1'));
 
   if (isQuestUsb) {
     return {
@@ -195,7 +197,7 @@ wss.on('connection', (ws, req) => {
 
     try {
       const data = JSON.parse(messageText);
-      const { type, roomCode, role, payload, localIp, pin } = data;
+      const { type, roomCode, role, payload, localIp, pin, isUsb } = data;
 
       // Security: Validate message type
       if (!type || !ALLOWED_MESSAGE_TYPES.has(type)) {
@@ -247,8 +249,8 @@ wss.on('connection', (ws, req) => {
               ws.send(JSON.stringify({ type: 'error', message: 'A Quest sender is already broadcasting in this room' }));
               return;
             }
-            room.quest = { ws, localIp: localIp || null, publicIp: clientPublicIp };
-            console.log(`[Signaling] Room ${code}: Quest 3 registered (local: ${localIp}, public: ${clientPublicIp})`);
+            room.quest = { ws, localIp: localIp || null, publicIp: clientPublicIp, isUsb: Boolean(isUsb) };
+            console.log(`[Signaling] Room ${code}: Quest 3 registered (local: ${localIp}, public: ${clientPublicIp}, isUsb: ${Boolean(isUsb)})`);
           } else {
             room.viewers.push({ ws, localIp: localIp || null, publicIp: clientPublicIp });
             console.log(`[Signaling] Room ${code}: Viewer joined (local: ${localIp}, public: ${clientPublicIp})`);

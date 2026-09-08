@@ -93,6 +93,9 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
             networkDetector?.getLocalIpAddress() ?: "127.0.0.1"
         }
 
+        val isUsb = config.signalingUrl.contains("127.0.0.1") || config.signalingUrl.contains("localhost")
+        webRTCManager?.isUsbMode = isUsb
+
         // Connect to Signaling Server
         signalingClient?.disconnect()
         signalingClient = SignalingClient(config.signalingUrl, this)
@@ -106,6 +109,7 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
         signalingClient = null
 
         webRTCManager?.stopStreaming()
+        permissionData = null // Clear token to prevent Android 14 MediaProjection reuse SecurityException
         _isStreaming.value = false
         _streamMetrics.value = StreamMetrics(networkMode = NetworkMode.IDLE)
 
@@ -120,6 +124,9 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
 
     override fun onNetworkTopologyDetected(mode: NetworkMode, description: String) {
         Log.d(tag, "Signaling detected topology: $mode ($description)")
+        if (mode == NetworkMode.USB) {
+            webRTCManager?.isUsbMode = true
+        }
         _streamMetrics.value = _streamMetrics.value.copy(
             networkMode = mode,
             networkDescription = description

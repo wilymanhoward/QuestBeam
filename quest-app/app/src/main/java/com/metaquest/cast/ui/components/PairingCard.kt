@@ -38,7 +38,8 @@ fun PairingCard(
     onRoomCodeChange: (String) -> Unit,
     onAutoDetectClick: () -> Unit,
     isDetecting: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    statusMessage: String? = null
 ) {
     GlassPanel(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -103,11 +104,20 @@ fun PairingCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Text(
-                text = "Enter the 6-character code shown on your laptop browser receiver.",
-                fontSize = 12.sp,
-                color = HorizonTextMuted
-            )
+            if (!statusMessage.isNullOrBlank()) {
+                Text(
+                    text = statusMessage,
+                    fontSize = 12.sp,
+                    color = HorizonMetaBlue,
+                    fontWeight = FontWeight.Medium
+                )
+            } else {
+                Text(
+                    text = "Enter the 6-character code shown on your laptop browser receiver.",
+                    fontSize = 12.sp,
+                    color = HorizonTextMuted
+                )
+            }
         }
     }
 }

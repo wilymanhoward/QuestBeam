@@ -12,6 +12,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,17 +98,21 @@ class MainActivity : ComponentActivity() {
                 val coroutineScope = rememberCoroutineScope()
                 var roomCode by remember { mutableStateOf(currentConfig.roomCode) }
                 var configState by remember { mutableStateOf(currentConfig) }
+                var isUsbConnectedState by remember { mutableStateOf(networkDetector.isUsbCablePlugged()) }
+                var connectionStatusText by remember { mutableStateOf<String?>(null) }
 
                 val isStreaming by captureService?.isStreaming?.collectAsState(false)
                     ?: remember { mutableStateOf(false) }
                 val metrics by captureService?.streamMetrics?.collectAsState(StreamMetrics())
                     ?: remember { mutableStateOf(StreamMetrics()) }
 
-                // Auto-detect on app launch: prioritzes USB Cable (127.0.0.1) then Wi-Fi
-                LaunchedEffect(Unit) {
+                // Unified auto-discovery function
+                suspend fun runDiscovery(isAutoTrigger: Boolean = false) {
                     isScanningNetwork = true
                     val res = networkDetector.discoverServer()
                     isScanningNetwork = false
+                    isUsbConnectedState = res.isUsbActive || res.isUsbCablePlugged
+
                     if (res.url != null) {
                         currentConfig = currentConfig.copy(signalingUrl = res.url)
                         if (!res.activeRoomCode.isNullOrBlank()) {
@@ -114,19 +121,76 @@ class MainActivity : ComponentActivity() {
                         }
                         configState = currentConfig
                         val roomInfo = if (!res.activeRoomCode.isNullOrBlank()) " • Room: ${res.activeRoomCode}" else ""
-                        val msg = if (res.isUsbActive) {
-                            "⚡ USB Cable detected! Zero-delay direct mode active$roomInfo"
+
+                        if (res.isUsbActive) {
+                            connectionStatusText = "⚡ USB-C Cable Direct Bus (0ms) • Synced to Room [${res.activeRoomCode ?: roomCode}]"
+                            Toast.makeText(
+                                this@MainActivity,
+                                "⚡ USB Cable connected! Zero-delay mode active$roomInfo",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         } else {
-                            "Laptop detected via Wi-Fi at ${res.url}$roomInfo"
+                            connectionStatusText = "Local Wi-Fi Network • Synced to Room [${res.activeRoomCode ?: roomCode}]"
+                            if (!isAutoTrigger) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Laptop detected via Wi-Fi at ${res.url}$roomInfo",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
-                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                     } else if (res.isUsbCablePlugged) {
+                        connectionStatusText = "⚡ USB-C Cable detected. Please allow USB debugging on headset."
                         Toast.makeText(
                             this@MainActivity,
                             "⚡ USB Cable connected! Please tap 'Allow USB debugging' on the headset prompt.",
                             Toast.LENGTH_LONG
                         ).show()
+                    } else if (!isAutoTrigger) {
+                        connectionStatusText = null
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Laptop not found on USB or local Wi-Fi. Ensure QuestBeam server is running on laptop.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
+                }
+
+                // Dynamic USB Hotplug Listener: automatically runs discovery when USB-C cable is inserted
+                DisposableEffect(Unit) {
+                    val receiver = object : BroadcastReceiver() {
+                        override fun onReceive(context: Context?, intent: Intent?) {
+                            val action = intent?.action
+                            if (action == "android.hardware.usb.action.USB_STATE" || action == Intent.ACTION_POWER_CONNECTED) {
+                                val isPlugged = networkDetector.isUsbCablePlugged()
+                                isUsbConnectedState = isPlugged
+                                if (isPlugged) {
+                                    coroutineScope.launch {
+                                        runDiscovery(isAutoTrigger = true)
+                                    }
+                                }
+                            } else if (action == Intent.ACTION_POWER_DISCONNECTED) {
+                                isUsbConnectedState = false
+                                connectionStatusText = null
+                            }
+                        }
+                    }
+                    val filter = IntentFilter().apply {
+                        addAction("android.hardware.usb.action.USB_STATE")
+                        addAction(Intent.ACTION_POWER_CONNECTED)
+                        addAction(Intent.ACTION_POWER_DISCONNECTED)
+                    }
+                    registerReceiver(receiver, filter)
+                    onDispose {
+                        try {
+                            unregisterReceiver(receiver)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // Initial auto-detect on app launch
+                LaunchedEffect(Unit) {
+                    runDiscovery(isAutoTrigger = true)
                 }
 
                 if (isSettingsOpen) {
@@ -145,6 +209,9 @@ class MainActivity : ComponentActivity() {
                         roomCode = roomCode,
                         localIpAddress = localIp,
                         isDetecting = isScanningNetwork,
+                        isUsbConnected = isUsbConnectedState,
+                        signalingUrl = configState.signalingUrl,
+                        connectionStatus = connectionStatusText,
                         onRoomCodeChange = {
                             roomCode = it
                             currentConfig = currentConfig.copy(roomCode = it)
@@ -160,37 +227,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onAutoDetectClick = {
                             coroutineScope.launch {
-                                isScanningNetwork = true
-                                val res = networkDetector.discoverServer()
-                                isScanningNetwork = false
-
-                                if (res.url != null) {
-                                    currentConfig = currentConfig.copy(signalingUrl = res.url)
-                                    if (!res.activeRoomCode.isNullOrBlank()) {
-                                        roomCode = res.activeRoomCode
-                                        currentConfig = currentConfig.copy(roomCode = res.activeRoomCode)
-                                    }
-                                    configState = currentConfig
-                                    val roomInfo = if (!res.activeRoomCode.isNullOrBlank()) " • Synced to Website Room [${res.activeRoomCode}]" else ""
-                                    val msg = if (res.isUsbActive) {
-                                        "⚡ Connected via USB Cable (0ms)!$roomInfo"
-                                    } else {
-                                        "Connected via Wi-Fi!$roomInfo"
-                                    }
-                                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                                } else if (res.isUsbCablePlugged) {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "⚡ USB Cable is connected! Please tap 'Always allow from this computer' -> 'Allow' on the headset prompt.",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                } else {
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Laptop not found on USB or local Wi-Fi. Ensure signaling server is running on laptop.",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
+                                runDiscovery(isAutoTrigger = false)
                             }
                         },
                         onSettingsClick = { isSettingsOpen = true }
