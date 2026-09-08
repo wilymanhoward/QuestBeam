@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.QuestCast" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/horizon_space</item>
+        <item name="android:statusBarColor">@color/horizon_space</item>
+        <item name="android:navigationBarColor">@color/horizon_space</item>
+        <item name="android:windowTranslucentStatus">false</item>
+    </style>
+</resources>

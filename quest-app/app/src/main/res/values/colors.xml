@@ -1,0 +1,11 @@
+<resources>
+    <!-- Meta Horizon OS System Palette -->
+    <color name="horizon_space">#FF0A0D14</color>
+    <color name="horizon_surface">#CC121722</color>
+    <color name="horizon_surface_border">#243044</color>
+    <color name="horizon_accent_blue">#4C7EFF</color>
+    <color name="horizon_accent_lan">#00E599</color>
+    <color name="horizon_accent_cloud">#00D2FF</color>
+    <color name="horizon_text_primary">#F3F5F9</color>
+    <color name="horizon_text_secondary">#94A3B8</color>
+</resources>

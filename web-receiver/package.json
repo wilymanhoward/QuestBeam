@@ -1,0 +1,10 @@
+{
+  "name": "quest-cast-web-receiver",
+  "version": "1.0.0",
+  "description": "Meta Horizon OS Screen Mirroring Web Receiver",
+  "scripts": {
+    "start": "npx -y serve src -l 3000",
+    "dev": "npx -y serve src -l 3000"
+  },
+  "dependencies": {}
+}

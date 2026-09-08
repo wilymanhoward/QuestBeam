@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuestBeam | Meta Quest 3 Screen Cast</title>
+  <meta name="description" content="Ultra low-latency Meta Quest 3 screen mirror and companion viewer with automatic Local LAN and Cloud WebRTC relay detection.">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%234C7EFF'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z'/></svg>">
+</head>
+<body>
+
+  <!-- Top App Navigation -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="quest-logo">
+        <svg viewBox="0 0 24 24">
+          <path d="M19.5 7H4.5C3.1 7 2 8.1 2 9.5v5C2 15.9 3.1 17 4.5 17h15c1.4 0 2.5-1.1 2.5-2.5v-5C22 8.1 20.9 7 19.5 7zM7.5 14C6.1 14 5 12.9 5 11.5S6.1 9 7.5 9s2.5 1.1 2.5 2.5S8.9 14 7.5 14zm9 0c-1.4 0-2.5-1.1-2.5-2.5s1.1-2.5 2.5-2.5 2.5 1.1 2.5 2.5-1.1 2.5-2.5 2.5z"/>
+        </svg>
+      </div>
+      <h1 class="brand-title">
+        QuestBeam
+        <span class="badge-version">Horizon OS</span>
+      </h1>
+    </div>
+
+    <div class="header-status-area">
+      <!-- Network Detection Mode Badge -->
+      <div id="networkPill" class="network-pill idle">
+        <span class="status-dot"></span>
+        <span id="networkPillText">Standby</span>
+      </div>
+
+      <button id="btnOpenSettings" class="btn-pill btn-secondary" title="Signaling & Server Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+        <span>Server</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="main-content">
+    
+    <!-- Connection & Room Pairing Control -->
+    <section class="connection-bar">
+      <div class="room-display">
+        <span class="room-label">Headset Room Code:</span>
+        <div id="roomCodeBadge" class="room-code-badge" title="Click to copy room code">
+          <span id="roomCodeText">Q3-CAST</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="room-inputs-group">
+        <input type="text" id="customRoomInput" class="input-custom-room" placeholder="CUSTOM CODE" maxlength="8">
+        <button id="btnJoinRoom" class="btn-pill btn-primary">
+          <span>Join Room</span>
+        </button>
+        <button id="btnNewCode" class="btn-pill btn-secondary" title="Generate New Room Code">
+          <span>Random</span>
+        </button>
+        <button id="btnShowQr" class="btn-pill btn-secondary" title="View QR Code">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm13-2h3v2h-3zm-5 0h2v2h-2zm2 2h2v3h-2zm-2 2h2v4h-2zm4 2h4v2h-4zm2-4h2v2h-2z"/>
+          </svg>
+          <span>QR</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Video Viewport -->
+    <section id="viewportCard" class="viewport-card">
+      <!-- Remote Stream Video Element -->
+      <video id="remoteVideo" autoplay playsinline muted></video>
+
+      <!-- Floating Real-Time HUD Stats Overlay -->
+      <div id="streamHud" class="stream-hud">
+        <div class="hud-stat">
+          <span>MODE:</span>
+          <strong id="hudMode">LAN DIRECT</strong>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span>FPS:</span>
+          <strong id="hudFps">0</strong>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span>RTT:</span>
+          <strong id="hudRtt">0 ms</strong>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span>BITRATE:</span>
+          <strong id="hudBitrate">0.0 Mbps</strong>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+          <span>RES:</span>
+          <strong id="hudRes">Waiting</strong>
+        </div>
+      </div>
+
+      <!-- Standby Waiting State (Before Stream Starts) -->
+      <div id="standbyScreen" class="standby-container">
+        <div class="radar-circle-wrap">
+          <div class="radar-pulse"></div>
+          <div class="radar-pulse"></div>
+          <div class="radar-pulse"></div>
+          <div class="headset-icon-box">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="#8EB4FF">
+              <path d="M19.5 7H4.5C3.1 7 2 8.1 2 9.5v5C2 15.9 3.1 17 4.5 17h15c1.4 0 2.5-1.1 2.5-2.5v-5C22 8.1 20.9 7 19.5 7zM7.5 14C6.1 14 5 12.9 5 11.5S6.1 9 7.5 9s2.5 1.1 2.5 2.5S8.9 14 7.5 14zm9 0c-1.4 0-2.5-1.1-2.5-2.5s1.1-2.5 2.5-2.5 2.5 1.1 2.5 2.5-1.1 2.5-2.5 2.5z"/>
+            </svg>
+          </div>
+        </div>
+
+        <h2 class="standby-title">Waiting for Meta Quest 3</h2>
+        <p class="standby-desc">
+          Put on your Meta Quest 3, open the native <strong>Quest Cast</strong> panel, and enter room code <strong id="standbyRoomCode" style="color: var(--accent-meta);">Q3-CAST</strong>.
+        </p>
+
+        <div class="instruction-steps">
+          <div class="step-item">
+            <span class="step-number">1</span>
+            <span>Launch the native <strong>Quest Cast</strong> app on your Quest 3.</span>
+          </div>
+          <div class="step-item">
+            <span class="step-number">2</span>
+            <span>Enter the code above or tap <strong>Auto-Detect Local Laptop</strong>.</span>
+          </div>
+          <div class="step-item">
+            <span class="step-number">3</span>
+            <span>Grant the native Horizon OS screen capture permission to start streaming.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating Control Dock -->
+      <div id="controlDock" class="control-dock">
+        <!-- Audio Toggle -->
+        <button id="btnToggleAudio" class="dock-btn" title="Mute / Unmute Headset Audio">
+          <svg id="iconVolume" viewBox="0 0 24 24">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+        </button>
+
+        <!-- Screenshot Snapshot -->
+        <button id="btnSnapshot" class="dock-btn" title="Capture High-Res Screenshot">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 15.2a3.2 3.2 0 100-6.4 3.2 3.2 0 000 6.4z"/>
+            <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+          </svg>
+        </button>
+
+        <!-- Local Recording -->
+        <button id="btnRecord" class="dock-btn" title="Start Local Video Recording">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="7"/>
+          </svg>
+        </button>
+
+        <!-- Fullscreen -->
+        <button id="btnFullscreen" class="dock-btn" title="Toggle Fullscreen View">
+          <svg viewBox="0 0 24 24">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+        </button>
+      </div>
+
+    </section>
+
+    <!-- Bottom Performance & Metrics Grid -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-title">Network Routing Mode</span>
+        <div id="statNetworkMode" class="stat-value" style="color: var(--text-secondary);">Disconnected</div>
+        <span id="statNetworkDesc" class="stat-sub">Waiting for Quest 3 peer connection</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-title">Real-Time Latency (RTT)</span>
+        <div id="statRtt" class="stat-value">-- ms</div>
+        <span class="stat-sub">Local LAN target: &lt; 40ms</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-title">Stream Bitrate</span>
+        <div id="statBitrate" class="stat-value">-- Mbps</div>
+        <span class="stat-sub">Hardware H.264 XR2 Gen 2</span>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-title">Video Quality</span>
+        <div id="statResolution" class="stat-value">--</div>
+        <span id="statFps" class="stat-sub">-- fps</span>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="modalSettings" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Connection & Server Settings</h3>
+        <button id="btnCloseSettings" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="inputSignalingUrl">Signaling WebSocket URL</label>
+          <input type="text" id="inputSignalingUrl" class="form-input" value="ws://localhost:8080">
+          <small style="color: var(--text-muted); font-size: 0.78rem;">
+            Tip: If viewing from a phone/laptop, set to your computer's local Wi-Fi IP (e.g. <code>ws://192.168.0.56:8080</code>) or cloud domain.
+          </small>
+        </div>
+
+        <div class="form-group">
+          <label for="inputStunUrl">STUN Server</label>
+          <input type="text" id="inputStunUrl" class="form-input" value="stun:stun.l.google.com:19302">
+        </div>
+
+        <div class="form-group">
+          <label for="inputTurnUrl">TURN Server (Optional Cloud Relay)</label>
+          <input type="text" id="inputTurnUrl" class="form-input" placeholder="turn:your-relay.com:3478">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+          <button id="btnSaveSettings" class="btn-pill btn-primary">Save & Reconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code Modal -->
+  <div id="modalQr" class="modal-overlay">
+    <div class="modal-dialog" style="text-align: center;">
+      <div class="modal-header">
+        <h3 class="modal-title">Headset Quick Connect</h3>
+        <button id="btnCloseQr" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" style="align-items: center;">
+        <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 12px;">
+          Scan or copy this Room Code into the Quest 3 app:
+        </p>
+        <div id="qrCodeContainer" style="background: white; padding: 16px; border-radius: 12px; margin-bottom: 14px;">
+          <!-- SVG QR Canvas generated via JS -->
+          <canvas id="qrCanvas" width="180" height="180"></canvas>
+        </div>
+        <div style="font-family: var(--font-mono); font-size: 1.6rem; font-weight: 700; color: var(--accent-meta); letter-spacing: 0.1em;">
+          <span id="qrRoomCodeText">Q3-CAST</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/stats.js"></script>
+  <script src="js/controls.js"></script>
+  <script src="js/webrtc.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

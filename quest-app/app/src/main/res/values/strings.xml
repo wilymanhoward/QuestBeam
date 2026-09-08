@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">QuestBeam</string>
+    <string name="notification_channel_name">QuestBeam Screen Sharing Active</string>
+    <string name="notification_channel_desc">Active Meta Quest 3 screen streaming session</string>
+    <string name="notification_title">QuestBeam is Streaming</string>
+    <string name="notification_text">Your Quest 3 view is being shared with your browser.</string>
+</resources>
