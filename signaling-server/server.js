@@ -3,6 +3,7 @@ const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const os = require('os');
+const dgram = require('dgram');
 const { exec } = require('child_process');
 const config = require('./config');
 
@@ -45,11 +46,29 @@ function getLocalIpAddresses() {
   return addresses;
 }
 
-// Health check endpoint (does not leak full network topology to unauthenticated callers)
+// Helper to get active waiting room code for auto-pairing with Quest
+function getActiveWaitingRoomCode() {
+  // 1. Prefer room with viewers waiting and NO quest connected yet
+  for (const [code, room] of rooms.entries()) {
+    if (room.viewers && room.viewers.length > 0 && !room.quest) {
+      return code;
+    }
+  }
+  // 2. Otherwise any room with active viewers
+  for (const [code, room] of rooms.entries()) {
+    if (room.viewers && room.viewers.length > 0) {
+      return code;
+    }
+  }
+  return null;
+}
+
+// Health check endpoint (also supplies active website room code for instant pairing)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    activeRoomCode: getActiveWaitingRoomCode()
   });
 });
 
@@ -353,6 +372,7 @@ const PORT = config.port;
 
 // Automatic ADB Reverse tunnel setup for zero-latency USB Cable streaming
 let isAdbReverseActive = false;
+let lastAdbWarningTime = 0;
 function setupAdbReverse() {
   const adbCandidates = [
     'adb',
@@ -366,10 +386,19 @@ function setupAdbReverse() {
     exec(`"${adbPath}" reverse tcp:${PORT} tcp:${PORT}`, (err, stdout, stderr) => {
       if (!err) {
         if (!isAdbReverseActive) {
-          console.log(`[USB Auto-Detect] ⚡ USB Cable detected! ADB reverse active: tcp:${PORT} -> tcp:${PORT}`);
+          console.log(`[USB Auto-Detect] ⚡ USB Cable detected & authorized! ADB reverse active: tcp:${PORT} -> tcp:${PORT}`);
           isAdbReverseActive = true;
         }
       } else {
+        const errorOutput = (stderr || '') + (stdout || '') + (err.message || '');
+        if (errorOutput.includes('unauthorized')) {
+          const now = Date.now();
+          if (now - lastAdbWarningTime > 300000) {
+            console.warn('[USB Auto-Detect] ⚠️ Meta Quest 3 is connected via USB, but UNAUTHORIZED!');
+            console.warn('[USB Auto-Detect] 👉 Please put on your Quest 3 headset and tap "Always allow from this computer" -> "Allow" on the popup.');
+            lastAdbWarningTime = now;
+          }
+        }
         if (index + 1 < adbCandidates.length) {
           tryCandidate(index + 1);
         } else {
@@ -382,6 +411,54 @@ function setupAdbReverse() {
   tryCandidate(0);
 }
 
+// UDP Broadcast Auto-Discovery Service (Port 8081)
+// Allows Quest 3 headset to discover this laptop server on Wi-Fi in <5ms without scanning 254 subnet IPs
+function startUdpDiscovery() {
+  const udpServer = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+
+  udpServer.on('error', (err) => {
+    console.warn('[UDP Discovery] Socket warning:', err.message);
+  });
+
+  udpServer.on('message', (msg, rinfo) => {
+    const text = msg.toString().trim();
+    if (text.includes('QUESTBEAM_DISCOVER')) {
+      console.log(`[UDP Discovery] Received discovery probe from Quest 3 at ${rinfo.address}:${rinfo.port}`);
+      const localAddrs = getLocalIpAddresses();
+      // Pick best IP that matches caller's subnet if possible, or primary LAN IP
+      const matching = localAddrs.find(a => {
+        const callerSub = rinfo.address.split('.').slice(0, 3).join('.');
+        return a.address.startsWith(callerSub);
+      }) || localAddrs[0];
+
+      const laptopIp = matching ? matching.address : '127.0.0.1';
+      const beaconPayload = JSON.stringify({
+        type: 'QUESTBEAM_BEACON',
+        serverIp: laptopIp,
+        port: PORT,
+        wsUrl: `ws://${laptopIp}:${PORT}`,
+        activeRoomCode: getActiveWaitingRoomCode()
+      });
+
+      const response = Buffer.from(beaconPayload);
+      udpServer.send(response, 0, response.length, rinfo.port, rinfo.address, (err) => {
+        if (!err) {
+          console.log(`[UDP Discovery] Sent beacon to Quest 3 at ${rinfo.address} -> ws://${laptopIp}:${PORT}`);
+        }
+      });
+    }
+  });
+
+  udpServer.bind(8081, '0.0.0.0', () => {
+    try {
+      udpServer.setBroadcast(true);
+      console.log(`[UDP Discovery] Auto-discovery beacon active on UDP port 8081`);
+    } catch (e) {
+      console.warn('[UDP Discovery] Could not set broadcast flag:', e.message);
+    }
+  });
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`QuestBeam Hardened Signaling & Relay Server running on:`);
@@ -392,6 +469,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`WebSocket URL: ws://<SERVER-IP>:${PORT}`);
   console.log(`Security: MaxPayload=64KB, RateLimit=40msg/s, OriginFiltered`);
   console.log(`=======================================================`);
+
+  // Start instant UDP auto-discovery beacon
+  startUdpDiscovery();
 
   // Initial attempt and periodic check for USB cable plug/unplug
   setupAdbReverse();

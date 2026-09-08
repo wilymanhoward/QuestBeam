@@ -104,14 +104,28 @@ class MainActivity : ComponentActivity() {
                 // Auto-detect on app launch: prioritzes USB Cable (127.0.0.1) then Wi-Fi
                 LaunchedEffect(Unit) {
                     isScanningNetwork = true
-                    val discovered = networkDetector.autoDiscoverSignalingServer()
+                    val res = networkDetector.discoverServer()
                     isScanningNetwork = false
-                    if (discovered != null) {
-                        currentConfig = currentConfig.copy(signalingUrl = discovered)
+                    if (res.url != null) {
+                        currentConfig = currentConfig.copy(signalingUrl = res.url)
+                        if (!res.activeRoomCode.isNullOrBlank()) {
+                            roomCode = res.activeRoomCode
+                            currentConfig = currentConfig.copy(roomCode = res.activeRoomCode)
+                        }
                         configState = currentConfig
-                        val isUsb = discovered.contains("127.0.0.1")
-                        val msg = if (isUsb) "⚡ USB Cable detected! Zero-delay direct mode active." else "Laptop detected at $discovered"
+                        val roomInfo = if (!res.activeRoomCode.isNullOrBlank()) " • Room: ${res.activeRoomCode}" else ""
+                        val msg = if (res.isUsbActive) {
+                            "⚡ USB Cable detected! Zero-delay direct mode active$roomInfo"
+                        } else {
+                            "Laptop detected via Wi-Fi at ${res.url}$roomInfo"
+                        }
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    } else if (res.isUsbCablePlugged) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "⚡ USB Cable connected! Please tap 'Allow USB debugging' on the headset prompt.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
 
@@ -147,23 +161,33 @@ class MainActivity : ComponentActivity() {
                         onAutoDetectClick = {
                             coroutineScope.launch {
                                 isScanningNetwork = true
-                                val discovered = networkDetector.autoDiscoverSignalingServer()
+                                val res = networkDetector.discoverServer()
                                 isScanningNetwork = false
 
-                                if (discovered != null) {
-                                    currentConfig = currentConfig.copy(signalingUrl = discovered)
+                                if (res.url != null) {
+                                    currentConfig = currentConfig.copy(signalingUrl = res.url)
+                                    if (!res.activeRoomCode.isNullOrBlank()) {
+                                        roomCode = res.activeRoomCode
+                                        currentConfig = currentConfig.copy(roomCode = res.activeRoomCode)
+                                    }
                                     configState = currentConfig
-                                    val isUsb = discovered.contains("127.0.0.1")
-                                    val msg = if (isUsb) {
-                                        "⚡ Connected via USB Cable! Zero-latency direct mode active."
+                                    val roomInfo = if (!res.activeRoomCode.isNullOrBlank()) " • Synced to Website Room [${res.activeRoomCode}]" else ""
+                                    val msg = if (res.isUsbActive) {
+                                        "⚡ Connected via USB Cable (0ms)!$roomInfo"
                                     } else {
-                                        "Connected via Wi-Fi: Discovered laptop at $discovered"
+                                        "Connected via Wi-Fi!$roomInfo"
                                     }
                                     Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                                } else if (res.isUsbCablePlugged) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "⚡ USB Cable is connected! Please tap 'Always allow from this computer' -> 'Allow' on the headset prompt.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 } else {
                                     Toast.makeText(
                                         this@MainActivity,
-                                        "Laptop not found on USB or local Wi-Fi. Please check cable or server.",
+                                        "Laptop not found on USB or local Wi-Fi. Ensure signaling server is running on laptop.",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
