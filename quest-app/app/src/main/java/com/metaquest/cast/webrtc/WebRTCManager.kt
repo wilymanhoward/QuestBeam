@@ -2,6 +2,7 @@ package com.metaquest.cast.webrtc
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.projection.MediaProjection
 import android.util.Log
 import com.metaquest.cast.model.NetworkMode
@@ -214,6 +215,19 @@ class WebRTCManager(
     fun addRemoteIceCandidate(sdpMid: String?, sdpMLineIndex: Int, candidate: String) {
         val iceCandidate = IceCandidate(sdpMid, sdpMLineIndex, candidate)
         peerConnection?.addIceCandidate(iceCandidate)
+    }
+
+    /**
+     * Request an uncompressed high-definition screenshot directly from the active hardware capturer
+     */
+    fun takeHdScreenshot(callback: (Bitmap?) -> Unit) {
+        val cap = capturer
+        if (cap != null) {
+            cap.captureNextFrameHd(callback)
+        } else {
+            Log.w(tag, "Cannot take screenshot: capturer is not active")
+            callback(null)
+        }
     }
 
     private fun startStatsPolling(preset: QualityPreset) {

@@ -87,10 +87,10 @@ app.get('/ip', (req, res) => {
 
 const server = http.createServer(app);
 
-// Security: Limit WebSocket maxPayload to 64 KB to block memory exhaustion attacks
+// Security: Allow up to 16 MB for full-resolution HD screenshot payloads
 const wss = new WebSocketServer({
   server,
-  maxPayload: 64 * 1024
+  maxPayload: 16 * 1024 * 1024
 });
 
 // Security: Rate limiting & connection tracking
@@ -101,7 +101,10 @@ const MAX_CONNECTIONS_PER_IP = 15;
 const MAX_MESSAGES_PER_SEC = 40;
 const ROOM_CODE_REGEX = /^[A-Za-z0-9_-]{3,24}$/;
 const ALLOWED_ROLES = new Set(['quest', 'viewer']);
-const ALLOWED_MESSAGE_TYPES = new Set(['join', 'offer', 'answer', 'ice-candidate', 'ping']);
+const ALLOWED_MESSAGE_TYPES = new Set([
+  'join', 'offer', 'answer', 'ice-candidate', 'ping',
+  'request-screenshot', 'screenshot-ready'
+]);
 
 // Rooms map: roomCode -> { quest: { ws, localIp, publicIp }, viewers: [ { ws, localIp, publicIp } ], pin: string|null }
 const rooms = new Map();
@@ -328,6 +331,30 @@ wss.on('connection', (ws, req) => {
 
         case 'ping': {
           ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          break;
+        }
+
+        case 'request-screenshot': {
+          const room = rooms.get(currentRoomCode);
+          if (room && room.quest && room.quest.ws.readyState === WebSocket.OPEN) {
+            console.log(`[Signaling] Relaying screenshot request from viewer to Quest 3 in room ${currentRoomCode}`);
+            room.quest.ws.send(JSON.stringify({ type: 'request-screenshot', roomCode: currentRoomCode }));
+          } else {
+            ws.send(JSON.stringify({ type: 'error', message: 'Quest 3 is not actively connected to this room' }));
+          }
+          break;
+        }
+
+        case 'screenshot-ready': {
+          const room = rooms.get(currentRoomCode);
+          if (room && currentRole === 'quest') {
+            console.log(`[Signaling] Relaying HD screenshot (${payload ? (payload.width + 'x' + payload.height) : 'HD'}) to viewers in room ${currentRoomCode}`);
+            for (const viewer of room.viewers) {
+              if (viewer.ws.readyState === WebSocket.OPEN) {
+                viewer.ws.send(JSON.stringify({ type: 'screenshot-ready', roomCode: currentRoomCode, payload }));
+              }
+            }
+          }
           break;
         }
       }

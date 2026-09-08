@@ -227,6 +227,26 @@ function connectSignaling() {
           console.log('[Signaling] Quest 3 disconnected');
           handleStreamStop('Headset disconnected');
           break;
+
+        case 'screenshot-ready':
+          console.log('[Signaling] Received native HD screenshot from Quest 3');
+          if (data.payload && data.payload.dataUrl) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const resText = data.payload.width && data.payload.height ? `${data.payload.width}x${data.payload.height}` : 'HD';
+            const filename = `Quest3-HD-${resText}-${timestamp}.jpg`;
+
+            const a = document.createElement('a');
+            a.href = data.payload.dataUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            if (state.controls) {
+              state.controls.onHdScreenshotReceived(filename, resText);
+            }
+          }
+          break;
       }
     } catch (err) {
       console.error('[Signaling] Error parsing message:', err);
@@ -334,6 +354,20 @@ function handleStreamStop(reason) {
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize Stream Controls
   state.controls = new StreamControls(elements.remoteVideo, elements.viewportCard);
+
+  // Hook up native HD screenshot requests from Meta Quest 3 hardware
+  state.controls.onRequestHdScreenshot = () => {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN && state.isStreaming) {
+      console.log('[Signaling] Requesting native HD screenshot from Quest 3 in room:', state.roomCode);
+      state.ws.send(JSON.stringify({
+        type: 'request-screenshot',
+        roomCode: state.roomCode,
+        role: 'viewer'
+      }));
+      return true;
+    }
+    return false;
+  };
 
   // Check URL hash for pre-selected room code (e.g. #room=Q3-CAST), or use saved / default
   const hashMatch = window.location.hash.match(/room=([A-Za-z0-9_-]+)/);

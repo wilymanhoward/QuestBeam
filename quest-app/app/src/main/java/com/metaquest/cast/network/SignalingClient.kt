@@ -18,6 +18,7 @@ interface SignalingListener {
     fun onAnswerReceived(sdp: String)
     fun onIceCandidateReceived(sdpMid: String?, sdpMLineIndex: Int, candidate: String)
     fun onViewerDisconnected()
+    fun onScreenshotRequested()
     fun onError(message: String)
 }
 
@@ -99,6 +100,10 @@ class SignalingClient(
                         "peer-disconnected" -> {
                             listener.onViewerDisconnected()
                         }
+                        "request-screenshot" -> {
+                            Log.d(tag, "Received request-screenshot command from viewer")
+                            listener.onScreenshotRequested()
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(tag, "Error parsing incoming message", e)
@@ -142,6 +147,23 @@ class SignalingClient(
             add("payload", payload)
         }
         webSocket?.send(msg.toString())
+    }
+
+    fun sendScreenshot(dataUrl: String, width: Int, height: Int) {
+        val payload = JsonObject().apply {
+            addProperty("dataUrl", dataUrl)
+            addProperty("width", width)
+            addProperty("height", height)
+            addProperty("timestamp", System.currentTimeMillis())
+        }
+        val msg = JsonObject().apply {
+            addProperty("type", "screenshot-ready")
+            addProperty("roomCode", currentRoomCode)
+            addProperty("role", "quest")
+            add("payload", payload)
+        }
+        webSocket?.send(msg.toString())
+        Log.i(tag, "Sent HD screenshot payload (${width}x$height) to signaling server")
     }
 
     fun disconnect() {

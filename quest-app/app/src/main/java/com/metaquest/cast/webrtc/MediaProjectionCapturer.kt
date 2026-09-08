@@ -2,6 +2,12 @@ package com.metaquest.cast.webrtc
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
@@ -11,6 +17,9 @@ import android.view.Surface
 import org.webrtc.CapturerObserver
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoCapturer
+import org.webrtc.VideoFrame
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Native Meta Horizon OS MediaProjection Video Capturer for WebRTC.
@@ -37,6 +46,14 @@ class MediaProjectionCapturer(
     private var frameCount: Long = 0
 
     private var surface: Surface? = null
+    private val pendingScreenshotCallback = AtomicReference<((Bitmap?) -> Unit)?>(null)
+
+    /**
+     * Request the next uncompressed hardware compositor frame as an HD Bitmap
+     */
+    fun captureNextFrameHd(callback: (Bitmap?) -> Unit) {
+        pendingScreenshotCallback.set(callback)
+    }
 
     override fun initialize(
         surfaceTextureHelper: SurfaceTextureHelper?,
@@ -75,6 +92,29 @@ class MediaProjectionCapturer(
             if (frameCount % 180L == 1L) {
                 Log.d(tag, "Delivered frame #$frameCount (${videoFrame.rotatedWidth}x${videoFrame.rotatedHeight}) to WebRTC encoder")
             }
+
+            // Check if an uncompressed HD screenshot was requested
+            val cb = pendingScreenshotCallback.getAndSet(null)
+            if (cb != null) {
+                try {
+                    videoFrame.retain()
+                    val i420 = videoFrame.buffer.toI420()
+                    if (i420 != null) {
+                        val bitmap = convertI420ToBitmap(i420, videoFrame.rotation)
+                        i420.release()
+                        videoFrame.release()
+                        Log.i(tag, "Successfully captured native HD frame (${bitmap.width}x${bitmap.height})")
+                        cb(bitmap)
+                    } else {
+                        videoFrame.release()
+                        cb(null)
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to capture HD screenshot from videoFrame: ${e.message}", e)
+                    cb(null)
+                }
+            }
+
             capturerObserver?.onFrameCaptured(videoFrame)
         }
 
@@ -143,4 +183,52 @@ class MediaProjectionCapturer(
     }
 
     override fun isScreencast(): Boolean = true
+
+    /**
+     * Converts a raw WebRTC I420Buffer into an uncompressed high-definition Android Bitmap
+     */
+    private fun convertI420ToBitmap(i420: VideoFrame.I420Buffer, rotation: Int): Bitmap {
+        val width = i420.width
+        val height = i420.height
+        val y = i420.dataY
+        val u = i420.dataU
+        val v = i420.dataV
+        val strideY = i420.strideY
+        val strideU = i420.strideU
+        val strideV = i420.strideV
+
+        val nv21 = ByteArray(width * height * 3 / 2)
+        var pos = 0
+
+        // 1. Copy Y plane
+        for (row in 0 until height) {
+            y.position(row * strideY)
+            y.get(nv21, pos, width)
+            pos += width
+        }
+
+        // 2. Interleave V and U (NV21 format: V followed by U)
+        val chromaHeight = (height + 1) / 2
+        val chromaWidth = (width + 1) / 2
+        for (row in 0 until chromaHeight) {
+            v.position(row * strideV)
+            u.position(row * strideU)
+            for (col in 0 until chromaWidth) {
+                nv21[pos++] = v.get()
+                nv21[pos++] = u.get()
+            }
+        }
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, width, height), 98, out)
+        val jpegBytes = out.toByteArray()
+
+        var bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+        if (rotation != 0) {
+            val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+            bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        }
+        return bitmap
+    }
 }

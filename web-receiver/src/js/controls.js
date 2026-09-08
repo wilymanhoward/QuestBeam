@@ -9,6 +9,9 @@ class StreamControls {
     this.mediaRecorder = null;
     this.recordedChunks = [];
     this.isRecording = false;
+    this.isCapturing = false;
+    this.screenshotTimeout = null;
+    this.onRequestHdScreenshot = null;
     this.stream = null;
 
     this.initEventListeners();
@@ -60,7 +63,29 @@ class StreamControls {
     }
   }
 
-  captureSnapshot() {
+  setCapturingState(isCapturing) {
+    this.isCapturing = isCapturing;
+    const btnSnapshot = document.getElementById('btnSnapshot');
+    if (!btnSnapshot) return;
+    if (isCapturing) {
+      btnSnapshot.classList.add('capturing');
+      btnSnapshot.setAttribute('title', 'Capturing HD screenshot from headset...');
+    } else {
+      btnSnapshot.classList.remove('capturing');
+      btnSnapshot.setAttribute('title', 'Capture High-Res Screenshot');
+      if (this.screenshotTimeout) {
+        clearTimeout(this.screenshotTimeout);
+        this.screenshotTimeout = null;
+      }
+    }
+  }
+
+  onHdScreenshotReceived(filename, resText) {
+    this.setCapturingState(false);
+    this.showToast(`✨ Saved Native HD Screenshot (${resText})`);
+  }
+
+  fallbackCanvasCapture() {
     if (!this.video || !this.video.videoWidth) {
       this.showToast('No video stream active to capture');
       return;
@@ -78,9 +103,34 @@ class StreamControls {
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
     a.download = filename;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
 
-    this.showToast(`Snapshot saved: ${filename}`);
+    this.showToast(`Snapshot saved from stream: ${filename}`);
+  }
+
+  captureSnapshot() {
+    if (this.isCapturing) return;
+
+    if (this.onRequestHdScreenshot) {
+      const requested = this.onRequestHdScreenshot();
+      if (requested) {
+        this.setCapturingState(true);
+        this.showToast('📸 Capturing native HD screenshot from Meta Quest 3...');
+
+        this.screenshotTimeout = setTimeout(() => {
+          if (this.isCapturing) {
+            console.warn('[Controls] HD screenshot timed out; falling back to canvas capture');
+            this.setCapturingState(false);
+            this.fallbackCanvasCapture();
+          }
+        }, 4000);
+        return;
+      }
+    }
+
+    this.fallbackCanvasCapture();
   }
 
   toggleRecording() {

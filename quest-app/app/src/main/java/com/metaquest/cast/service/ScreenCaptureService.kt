@@ -8,10 +8,16 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Base64
 import android.util.Log
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.core.app.NotificationCompat
 import com.metaquest.cast.MainActivity
 import com.metaquest.cast.R
@@ -158,6 +164,29 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
             networkMode = NetworkMode.IDLE,
             networkDescription = "Viewer disconnected"
         )
+    }
+
+    override fun onScreenshotRequested() {
+        Log.i(tag, "HD screenshot requested by viewer. Capturing pristine compositor frame...")
+        webRTCManager?.takeHdScreenshot { bitmap ->
+            if (bitmap != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val stream = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 98, stream)
+                        val byteArray = stream.toByteArray()
+                        val base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+                        val dataUrl = "data:image/jpeg;base64,$base64"
+                        signalingClient?.sendScreenshot(dataUrl, bitmap.width, bitmap.height)
+                        Log.i(tag, "HD screenshot successfully sent to viewer (${bitmap.width}x${bitmap.height}, ${byteArray.size / 1024} KB)")
+                    } catch (e: Exception) {
+                        Log.e(tag, "Failed to encode and send HD screenshot: ${e.message}", e)
+                    }
+                }
+            } else {
+                Log.w(tag, "Could not capture HD frame from capturer")
+            }
+        }
     }
 
     override fun onError(message: String) {
