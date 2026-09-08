@@ -10,15 +10,20 @@ module.exports = {
         'stun:stun.cloudflare.com:3478'
       ]
     },
-    // Optional Cloud TURN server for relaying when devices are behind strict NAT or on separate networks
+    // Cloud TURN servers for media relaying when devices are on separate networks or behind symmetric NAT
     ...(process.env.TURN_URL ? [{
       urls: process.env.TURN_URL,
       username: process.env.TURN_USERNAME || '',
       credential: process.env.TURN_CREDENTIAL || ''
     }] : [
-      // Standard public testing relay / open relay fallback
       {
-        urls: 'stun:stun.relay.metered.ca:80'
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: process.env.TURN_USERNAME || 'openrelayproject',
+        credential: process.env.TURN_CREDENTIAL || 'openrelayproject'
       }
     ])
   ]

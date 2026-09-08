@@ -221,8 +221,9 @@ class NetworkDetector(private val context: Context) {
      * 1. USB Reverse Tunnel (127.0.0.1:8080)
      * 2. UDP LAN Broadcast Beacon
      * 3. Subnet HTTP Parallel Sweep
+     * 4. Cloud Tunnel Fallback (Remote Streaming)
      */
-    suspend fun discoverServer(port: Int = 8080): DiscoveryResult = withContext(Dispatchers.IO) {
+    suspend fun discoverServer(port: Int = 8080, cloudFallbackUrl: String? = null): DiscoveryResult = withContext(Dispatchers.IO) {
         val usbPlugged = isUsbCablePlugged()
         Log.d(tag, "Beginning server discovery (USB Cable Physically Plugged: $usbPlugged)...")
 
@@ -308,9 +309,53 @@ class NetworkDetector(private val context: Context) {
         }
 
         val finalRes = discoveredResult.get()
+        if (finalRes != null) {
+            return@withContext DiscoveryResult(
+                url = finalRes.first,
+                activeRoomCode = finalRes.second,
+                isUsbCablePlugged = usbPlugged,
+                isUsbActive = false
+            )
+        }
+
+        // 4. CLOUD FALLBACK: Probe configured Cloud Tunnel / remote URL if provided
+        if (!cloudFallbackUrl.isNullOrBlank() && (cloudFallbackUrl.startsWith("ws://") || cloudFallbackUrl.startsWith("wss://") || cloudFallbackUrl.startsWith("http"))) {
+            val httpUrl = cloudFallbackUrl
+                .replace("wss://", "https://")
+                .replace("ws://", "http://")
+            Log.d(tag, "Probing Cloud fallback at $httpUrl...")
+            try {
+                val cleanUrl = if (httpUrl.endsWith("/health")) httpUrl else "$httpUrl/health"
+                val urlObj = URL(cleanUrl)
+                val conn = (urlObj.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 2500
+                    readTimeout = 2500
+                    requestMethod = "GET"
+                    instanceFollowRedirects = true
+                }
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val roomRegex = """"activeRoomCode"\s*:\s*"([^"]+)"""".toRegex()
+                    val activeRoom = roomRegex.find(body)?.groupValues?.get(1)
+                    val wssUrl = if (cloudFallbackUrl.startsWith("http")) {
+                        cloudFallbackUrl.replace("https://", "wss://").replace("http://", "ws://")
+                    } else cloudFallbackUrl
+                    Log.i(tag, "☁️ Discovered Cloud Signaling Tunnel: $wssUrl (Room: $activeRoom)")
+                    return@withContext DiscoveryResult(
+                        url = wssUrl,
+                        activeRoomCode = activeRoom,
+                        isUsbCablePlugged = usbPlugged,
+                        isUsbActive = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.d(tag, "Cloud fallback probe failed: ${e.message}")
+            }
+        }
+
         return@withContext DiscoveryResult(
-            url = finalRes?.first,
-            activeRoomCode = finalRes?.second,
+            url = null,
+            activeRoomCode = null,
             isUsbCablePlugged = usbPlugged,
             isUsbActive = false
         )

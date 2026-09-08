@@ -29,10 +29,10 @@ import com.metaquest.cast.network.SignalingClient
 import com.metaquest.cast.network.SignalingListener
 import com.metaquest.cast.webrtc.WebRTCListener
 import com.metaquest.cast.webrtc.WebRTCManager
+import org.webrtc.PeerConnection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.webrtc.PeerConnection
 
 /**
  * Background Foreground Service managing the Meta Quest 3 screen casting lifecycle.
@@ -52,6 +52,7 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
 
     private var permissionData: Intent? = null
     private var currentConfig = CastConfig()
+    private var dynamicIceServers: List<PeerConnection.IceServer> = emptyList()
 
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
@@ -124,8 +125,9 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
 
     // --- Signaling Listener Callbacks ---
 
-    override fun onJoinedRoom(roomCode: String) {
-        Log.d(tag, "Successfully joined room $roomCode. Waiting for viewer...")
+    override fun onJoinedRoom(roomCode: String, iceServers: List<PeerConnection.IceServer>) {
+        Log.d(tag, "Successfully joined room $roomCode. Received ${iceServers.size} ICE servers. Waiting for viewer...")
+        dynamicIceServers = iceServers
     }
 
     override fun onNetworkTopologyDetected(mode: NetworkMode, description: String) {
@@ -140,12 +142,13 @@ class ScreenCaptureService : Service(), WebRTCListener, SignalingListener {
     }
 
     override fun onViewerReady(roomCode: String) {
-        Log.d(tag, "Viewer detected in room $roomCode. Initializing WebRTC stream...")
+        Log.d(tag, "Viewer detected in room $roomCode. Initializing WebRTC stream with ${dynamicIceServers.size} ICE servers...")
         val data = permissionData ?: return
         webRTCManager?.startScreenStreaming(
             permissionData = data,
             qualityPreset = currentConfig.qualityPreset,
-            includeAudio = currentConfig.captureAudio
+            includeAudio = currentConfig.captureAudio,
+            iceServers = if (dynamicIceServers.isNotEmpty()) dynamicIceServers else WebRTCManager.DEFAULT_ICE_SERVERS
         )
     }
 

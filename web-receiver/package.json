@@ -6,5 +6,7 @@
     "start": "npx -y serve src -l 3000",
     "dev": "npx -y serve src -l 3000"
   },
-  "dependencies": {}
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
 }

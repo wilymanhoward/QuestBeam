@@ -205,17 +205,27 @@
 
   <!-- Settings Modal -->
   <div id="modalSettings" class="modal-overlay">
-    <div class="modal-dialog">
+    <div class="modal-dialog" style="max-width: 480px;">
       <div class="modal-header">
         <h3 class="modal-title">Connection & Server Settings</h3>
         <button id="btnCloseSettings" class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
+        <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+          <button type="button" id="btnPresetLocal" class="btn-pill" style="font-size: 0.8rem; padding: 6px 12px; background: rgba(0, 100, 224, 0.15); border: 1px solid var(--accent-meta); color: var(--accent-meta);">
+            ⚡ Local Mode (LAN / USB)
+          </button>
+          <button type="button" id="btnPresetCloud" class="btn-pill" style="font-size: 0.8rem; padding: 6px 12px; background: rgba(0, 210, 255, 0.15); border: 1px solid var(--accent-cloud); color: var(--accent-cloud);">
+            ☁️ Cloud Mode (Remote Tunnel)
+          </button>
+        </div>
+
         <div class="form-group">
           <label for="inputSignalingUrl">Signaling WebSocket URL</label>
           <input type="text" id="inputSignalingUrl" class="form-input" value="ws://localhost:8080">
-          <small style="color: var(--text-muted); font-size: 0.78rem;">
-            Tip: If viewing from a phone/laptop, set to your computer's local Wi-Fi IP (e.g. <code>ws://192.168.0.56:8080</code>) or cloud domain.
+          <small id="signalingHelpText" style="color: var(--text-muted); font-size: 0.78rem; display: block; margin-top: 4px; line-height: 1.4;">
+            For local Wi-Fi / USB use <code>ws://localhost:8080</code> or <code>ws://&lt;laptop-ip&gt;:8080</code>.<br>
+            For remote streaming across different networks on HTTPS, use your Cloudflare Tunnel (<code>wss://*.trycloudflare.com</code>).
           </small>
         </div>
 
@@ -226,7 +236,7 @@
 
         <div class="form-group">
           <label for="inputTurnUrl">TURN Server (Optional Cloud Relay)</label>
-          <input type="text" id="inputTurnUrl" class="form-input" placeholder="turn:your-relay.com:3478">
+          <input type="text" id="inputTurnUrl" class="form-input" placeholder="turn:openrelay.metered.ca:443">
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
@@ -236,23 +246,37 @@
     </div>
   </div>
 
-  <!-- QR Code Modal -->
+  <!-- QR Code & Quick Connect Modal -->
   <div id="modalQr" class="modal-overlay">
-    <div class="modal-dialog" style="text-align: center;">
+    <div class="modal-dialog" style="text-align: center; max-width: 440px;">
       <div class="modal-header">
-        <h3 class="modal-title">Headset Quick Connect</h3>
+        <h3 class="modal-title">Quick Connect & Share</h3>
         <button id="btnCloseQr" class="modal-close">&times;</button>
       </div>
       <div class="modal-body" style="align-items: center;">
-        <p style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 12px;">
-          Scan or copy this Room Code into the Quest 3 app:
-        </p>
-        <div id="qrCodeContainer" style="background: white; padding: 16px; border-radius: 12px; margin-bottom: 14px;">
-          <!-- SVG QR Canvas generated via JS -->
+        <!-- Quest 3 Auto-Sync Highlight Box -->
+        <div style="background: rgba(0, 100, 224, 0.08); border: 1px solid rgba(0, 100, 224, 0.25); border-radius: 12px; padding: 12px; margin-bottom: 16px; text-align: left;">
+          <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--accent-meta); font-size: 0.9rem; margin-bottom: 4px;">
+            <span>⚡ Meta Quest 3 Zero-Touch Auto-Sync</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0; line-height: 1.4;">
+            Your Quest 3 continuously auto-detects this room over <strong>USB-C Cable</strong> (0ms delay) or <strong>Local Wi-Fi</strong>. Simply put on the headset—no typing or camera scanning needed!
+          </p>
+        </div>
+
+        <div id="qrCodeContainer" style="background: white; padding: 14px; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.25); margin-bottom: 12px;">
           <canvas id="qrCanvas" width="180" height="180"></canvas>
         </div>
-        <div style="font-family: var(--font-mono); font-size: 1.6rem; font-weight: 700; color: var(--accent-meta); letter-spacing: 0.1em;">
-          <span id="qrRoomCodeText">Q3-CAST</span>
+
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+          Scan with a smartphone, tablet, or Quest Browser to watch:
+        </p>
+
+        <div style="display: inline-flex; align-items: center; gap: 8px; background: var(--bg-card); padding: 8px 16px; border-radius: 30px; border: 1px solid var(--border-color); cursor: pointer;" id="copyRoomCodeBadge" title="Click to Copy Room Code">
+          <span style="font-family: var(--font-mono); font-size: 1.3rem; font-weight: 700; color: var(--accent-meta); letter-spacing: 0.08em;" id="qrRoomCodeText">Q3-CAST</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color: var(--text-muted);">
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+          </svg>
         </div>
       </div>
     </div>
@@ -262,6 +286,7 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- Scripts -->
+  <script src="js/qrcode.min.js"></script>
   <script src="js/stats.js"></script>
   <script src="js/controls.js"></script>
   <script src="js/webrtc.js"></script>

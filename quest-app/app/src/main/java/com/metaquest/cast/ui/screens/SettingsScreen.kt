@@ -41,6 +41,7 @@ import com.metaquest.cast.model.QualityPreset
 import com.metaquest.cast.ui.components.GlassPanel
 import com.metaquest.cast.ui.theme.HorizonBorderHighlight
 import com.metaquest.cast.ui.theme.HorizonBorderSubtle
+import com.metaquest.cast.ui.theme.HorizonCloudCyan
 import com.metaquest.cast.ui.theme.HorizonMetaBlue
 import com.metaquest.cast.ui.theme.HorizonSpace
 import com.metaquest.cast.ui.theme.HorizonSurfaceElevated
@@ -196,6 +197,53 @@ fun SettingsScreen(
                     color = HorizonTextSecondary,
                     letterSpacing = 0.5.sp
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(HorizonSurfaceElevated)
+                            .border(1.dp, HorizonBorderSubtle, RoundedCornerShape(8.dp))
+                            .clickable {
+                                onConfigChange(config.copy(signalingUrl = "ws://127.0.0.1:8080"))
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⚡ Local / USB",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = HorizonMetaBlue
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(HorizonSurfaceElevated)
+                            .border(1.dp, HorizonBorderSubtle, RoundedCornerShape(8.dp))
+                            .clickable {
+                                onConfigChange(config.copy(signalingUrl = "wss://millions-great-representations-never.trycloudflare.com"))
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "☁️ Cloud Tunnel",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = HorizonCloudCyan
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 

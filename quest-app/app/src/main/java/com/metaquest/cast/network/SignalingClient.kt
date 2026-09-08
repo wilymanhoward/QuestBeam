@@ -9,10 +9,11 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.webrtc.PeerConnection
 import java.util.concurrent.TimeUnit
 
 interface SignalingListener {
-    fun onJoinedRoom(roomCode: String)
+    fun onJoinedRoom(roomCode: String, iceServers: List<PeerConnection.IceServer> = emptyList())
     fun onNetworkTopologyDetected(mode: NetworkMode, description: String)
     fun onViewerReady(roomCode: String)
     fun onAnswerReceived(sdp: String)
@@ -69,7 +70,39 @@ class SignalingClient(
                     when (type) {
                         "joined" -> {
                             val code = msg.get("roomCode")?.asString ?: currentRoomCode
-                            listener.onJoinedRoom(code)
+                            val iceServersList = mutableListOf<PeerConnection.IceServer>()
+                            try {
+                                val iceServersJson = msg.getAsJsonArray("iceServers")
+                                if (iceServersJson != null) {
+                                    for (elem in iceServersJson) {
+                                        val obj = elem.asJsonObject
+                                        val urls = mutableListOf<String>()
+                                        val urlElem = obj.get("urls")
+                                        if (urlElem != null) {
+                                            if (urlElem.isJsonArray) {
+                                                for (u in urlElem.asJsonArray) {
+                                                    urls.add(u.asString)
+                                                }
+                                            } else if (urlElem.isJsonPrimitive) {
+                                                urls.add(urlElem.asString)
+                                            }
+                                        }
+                                        val username = obj.get("username")?.asString
+                                        val credential = obj.get("credential")?.asString
+
+                                        for (u in urls) {
+                                            val builder = PeerConnection.IceServer.builder(u)
+                                            if (!username.isNullOrBlank()) builder.setUsername(username)
+                                            if (!credential.isNullOrBlank()) builder.setPassword(credential)
+                                            iceServersList.add(builder.createIceServer())
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.w(tag, "Could not parse dynamic iceServers: ${e.message}")
+                            }
+                            Log.d(tag, "Successfully joined room $code with ${iceServersList.size} ICE servers")
+                            listener.onJoinedRoom(code, iceServersList)
                         }
                         "network-topology" -> {
                             val modeStr = msg.get("mode")?.asString ?: "unknown"

@@ -89,14 +89,28 @@ class WebRTCManager(
             .createPeerConnectionFactory()
     }
 
+    companion object {
+        val DEFAULT_ICE_SERVERS: List<PeerConnection.IceServer> = listOf(
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun.cloudflare.com:3478").createIceServer(),
+            PeerConnection.IceServer.builder("turn:openrelay.metered.ca:80")
+                .setUsername("openrelayproject")
+                .setPassword("openrelayproject")
+                .createIceServer(),
+            PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
+                .setUsername("openrelayproject")
+                .setPassword("openrelayproject")
+                .createIceServer()
+        )
+    }
+
     fun startScreenStreaming(
         permissionData: Intent,
         qualityPreset: QualityPreset,
         includeAudio: Boolean,
-        iceServers: List<PeerConnection.IceServer> = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-        )
+        iceServers: List<PeerConnection.IceServer> = DEFAULT_ICE_SERVERS
     ) {
         // Clean up previous peer connection and stats polling, but keep active capturer if already running
         statsJob?.cancel()

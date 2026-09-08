@@ -30,6 +30,7 @@ import com.metaquest.cast.service.ScreenCaptureService
 import com.metaquest.cast.ui.screens.HomeScreen
 import com.metaquest.cast.ui.screens.SettingsScreen
 import com.metaquest.cast.ui.theme.QuestCastTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -109,32 +110,43 @@ class MainActivity : ComponentActivity() {
                 // Unified auto-discovery function
                 suspend fun runDiscovery(isAutoTrigger: Boolean = false) {
                     isScanningNetwork = true
-                    val res = networkDetector.discoverServer()
+                    val res = networkDetector.discoverServer(cloudFallbackUrl = configState.signalingUrl)
                     isScanningNetwork = false
                     isUsbConnectedState = res.isUsbActive || res.isUsbCablePlugged
 
                     if (res.url != null) {
+                        val previousRoom = roomCode
                         currentConfig = currentConfig.copy(signalingUrl = res.url)
                         if (!res.activeRoomCode.isNullOrBlank()) {
                             roomCode = res.activeRoomCode
                             currentConfig = currentConfig.copy(roomCode = res.activeRoomCode)
                         }
                         configState = currentConfig
-                        val roomInfo = if (!res.activeRoomCode.isNullOrBlank()) " • Room: ${res.activeRoomCode}" else ""
 
                         if (res.isUsbActive) {
                             connectionStatusText = "⚡ USB-C Cable Direct Bus (0ms) • Synced to Room [${res.activeRoomCode ?: roomCode}]"
-                            Toast.makeText(
-                                this@MainActivity,
-                                "⚡ USB Cable connected! Zero-delay mode active$roomInfo",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            connectionStatusText = "Local Wi-Fi Network • Synced to Room [${res.activeRoomCode ?: roomCode}]"
-                            if (!isAutoTrigger) {
+                            if (!isAutoTrigger || previousRoom != res.activeRoomCode) {
                                 Toast.makeText(
                                     this@MainActivity,
-                                    "Laptop detected via Wi-Fi at ${res.url}$roomInfo",
+                                    "⚡ Auto-paired with website room [${res.activeRoomCode ?: roomCode}] via USB!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else if (res.url.startsWith("wss://") || res.url.contains("trycloudflare")) {
+                            connectionStatusText = "☁️ Remote Cloud Relay • Synced to Room [${res.activeRoomCode ?: roomCode}]"
+                            if (!isAutoTrigger || previousRoom != res.activeRoomCode) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "☁️ Connected to Cloud Room [${res.activeRoomCode ?: roomCode}]!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            connectionStatusText = "Local Wi-Fi Network • Synced to Room [${res.activeRoomCode ?: roomCode}]"
+                            if (!isAutoTrigger || previousRoom != res.activeRoomCode) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Auto-paired with website room [${res.activeRoomCode ?: roomCode}] via Wi-Fi!",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -188,9 +200,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Initial auto-detect on app launch
-                LaunchedEffect(Unit) {
-                    runDiscovery(isAutoTrigger = true)
+                // Standby Auto-Sync: continuously poll every 3 seconds while not streaming,
+                // so the moment the laptop opens the room code, the headset automatically adopts it without any typing!
+                LaunchedEffect(isStreaming) {
+                    while (!isStreaming) {
+                        runDiscovery(isAutoTrigger = true)
+                        delay(3000)
+                    }
                 }
 
                 if (isSettingsOpen) {
