@@ -5,17 +5,10 @@
 function getDefaultSignalingUrl() {
   const saved = localStorage.getItem('quest_signaling_url');
   if (saved) return saved;
-
-  const urlParams = new URLSearchParams(window.location.search);
-  const sigParam = urlParams.get('sig');
-  if (sigParam) return sigParam;
-
-  if (window.location.protocol === 'https:') {
-    // In HTTPS (e.g. questbeam.web.app), browsers block unencrypted ws://
-    // Default to active Cloudflare Tunnel endpoint for remote streaming
-    return localStorage.getItem('quest_cloud_tunnel_url') || 'wss://millions-great-representations-never.trycloudflare.com';
+  if (window.location.hostname.includes('web.app') || window.location.hostname.includes('firebaseapp.com')) {
+    return 'ws://localhost:8080';
   }
-  return `ws://${window.location.hostname || 'localhost'}:8080`;
+  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname || 'localhost'}:8080`;
 }
 
 // Application State
@@ -67,10 +60,7 @@ const elements = {
   modalQr: document.getElementById('modalQr'),
   btnCloseQr: document.getElementById('btnCloseQr'),
   qrCanvas: document.getElementById('qrCanvas'),
-  qrRoomCodeText: document.getElementById('qrRoomCodeText'),
-  copyRoomCodeBadge: document.getElementById('copyRoomCodeBadge'),
-  btnPresetLocal: document.getElementById('btnPresetLocal'),
-  btnPresetCloud: document.getElementById('btnPresetCloud')
+  qrRoomCodeText: document.getElementById('qrRoomCodeText')
 };
 
 // Generate a clean 6-character room code (e.g. Q3-7842)
@@ -125,31 +115,47 @@ function updateNetworkStatus(mode, desc, rttMs) {
   }
 }
 
-// Render Scannable QR Code onto Canvas
+// Render Simple Pure-JS QR Matrix on HTML Canvas (No heavy dependencies)
 function renderQrCode(text) {
   const canvas = elements.qrCanvas;
   if (!canvas) return;
-  const targetUrl = `https://questbeam.web.app/#room=${encodeURIComponent(text)}`;
+  const ctx = canvas.getContext('2d');
+  const size = 180;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, size, size);
 
-  if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
-    window.QRCode.toCanvas(canvas, targetUrl, {
-      width: 180,
-      margin: 1,
-      color: {
-        dark: '#0f172a',
-        light: '#ffffff'
-      }
-    }, function (error) {
-      if (error) console.error('QR code render error:', error);
-    });
-  } else {
-    const ctx = canvas.getContext('2d');
+  // Generate pseudo-deterministic pattern from text string
+  ctx.fillStyle = '#0F172A';
+  const grid = 21;
+  const cell = size / grid;
+
+  // Corner finder markers
+  function drawFinder(x, y) {
+    ctx.fillRect(x * cell, y * cell, 7 * cell, 7 * cell);
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, 180, 180);
+    ctx.fillRect((x + 1) * cell, (y + 1) * cell, 5 * cell, 5 * cell);
     ctx.fillStyle = '#0F172A';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Loading QR...', 90, 95);
+    ctx.fillRect((x + 2) * cell, (y + 2) * cell, 3 * cell, 3 * cell);
+  }
+
+  drawFinder(0, 0);
+  drawFinder(grid - 7, 0);
+  drawFinder(0, grid - 7);
+
+  // Body data cells based on room text hash
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+  }
+
+  for (let r = 0; r < grid; r++) {
+    for (let c = 0; c < grid; c++) {
+      if ((r < 8 && c < 8) || (r < 8 && c >= grid - 8) || (r >= grid - 8 && c < 8)) continue;
+      const bit = Math.sin((r * grid + c) * hash) > 0.15;
+      if (bit) {
+        ctx.fillRect(c * cell, r * cell, cell - 0.5, cell - 0.5);
+      }
+    }
   }
 }
 
@@ -186,9 +192,6 @@ function connectSignaling() {
           console.log('[Signaling] Successfully registered in room', data.roomCode);
           if (data.iceServers) {
             state.iceServers = data.iceServers;
-          }
-          if (data.cloudUrl) {
-            localStorage.setItem('quest_cloud_tunnel_url', data.cloudUrl);
           }
           break;
 
@@ -261,15 +264,10 @@ function connectSignaling() {
 
 // Initialize WebRTC receiver
 function initWebRTC() {
-  let iceServers = [];
-  if (state.iceServers && Array.isArray(state.iceServers) && state.iceServers.length > 0) {
-    iceServers = state.iceServers;
-  } else {
-    iceServers = [
-      { urls: state.stunUrl }
-    ];
-  }
-  if (state.turnUrl && !iceServers.some(s => s.urls === state.turnUrl)) {
+  const iceServers = [
+    { urls: state.stunUrl }
+  ];
+  if (state.turnUrl) {
     iceServers.push({ urls: state.turnUrl });
   }
 
@@ -407,21 +405,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // QR Modal
   elements.btnShowQr.addEventListener('click', () => {
-    renderQrCode(state.roomCode);
     elements.modalQr.classList.add('open');
   });
   elements.btnCloseQr.addEventListener('click', () => {
     elements.modalQr.classList.remove('open');
   });
-  if (elements.copyRoomCodeBadge) {
-    elements.copyRoomCodeBadge.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.roomCode).then(() => {
-        state.controls.showToast(`Room code [${state.roomCode}] copied to clipboard!`);
-      }).catch(() => {
-        state.controls.showToast(`Room code: ${state.roomCode}`);
-      });
-    });
-  }
 
   // Settings Modal
   elements.btnOpenSettings.addEventListener('click', () => {
@@ -443,19 +431,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.controls.showToast('Settings saved. Reconnecting...');
     connectSignaling();
   });
-
-  // Preset Buttons in Settings
-  if (elements.btnPresetLocal) {
-    elements.btnPresetLocal.addEventListener('click', () => {
-      elements.inputSignalingUrl.value = 'ws://localhost:8080';
-    });
-  }
-  if (elements.btnPresetCloud) {
-    elements.btnPresetCloud.addEventListener('click', () => {
-      const cloud = localStorage.getItem('quest_cloud_tunnel_url') || 'wss://millions-great-representations-never.trycloudflare.com';
-      elements.inputSignalingUrl.value = cloud;
-    });
-  }
 
   // Start Signaling Connection
   connectSignaling();

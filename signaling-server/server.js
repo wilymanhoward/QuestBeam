@@ -63,45 +63,19 @@ function getActiveWaitingRoomCode() {
   return null;
 }
 
-let cloudTunnelUrl = process.env.CLOUD_TUNNEL_URL || null;
-
-function getCloudWssUrl() {
-  if (!cloudTunnelUrl) return null;
-  return cloudTunnelUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-}
-
-// Health check endpoint (supplies active room code and cloud tunnel URL)
+// Health check endpoint (also supplies active website room code for instant pairing)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    activeRoomCode: getActiveWaitingRoomCode(),
-    cloudUrl: getCloudWssUrl()
+    activeRoomCode: getActiveWaitingRoomCode()
   });
 });
 
 app.get('/config', (req, res) => {
   res.json({
-    iceServers: config.iceServers,
-    cloudUrl: getCloudWssUrl()
+    iceServers: config.iceServers
   });
-});
-
-app.get('/tunnel', (req, res) => {
-  res.json({
-    cloudUrl: getCloudWssUrl(),
-    httpUrl: cloudTunnelUrl
-  });
-});
-
-app.post('/tunnel', (req, res) => {
-  if (req.body && req.body.url) {
-    cloudTunnelUrl = req.body.url;
-    console.log(`[Cloud Tunnel] Tunnel URL set: ${cloudTunnelUrl} (${getCloudWssUrl()})`);
-    res.json({ success: true, cloudUrl: getCloudWssUrl() });
-  } else {
-    res.status(400).json({ error: 'Missing url in request body' });
-  }
 });
 
 // Endpoint to inspect client IP
@@ -290,8 +264,7 @@ wss.on('connection', (ws, req) => {
             type: 'joined',
             roomCode: code,
             role,
-            iceServers: config.iceServers,
-            cloudUrl: getCloudWssUrl()
+            iceServers: config.iceServers
           }));
 
           // If both Quest and viewer are present, evaluate network topology and trigger negotiation
@@ -303,8 +276,7 @@ wss.on('connection', (ws, req) => {
               type: 'network-topology',
               ...netEval,
               questIp: room.quest.localIp || room.quest.publicIp,
-              viewerIp: latestViewer.localIp || latestViewer.publicIp,
-              cloudUrl: getCloudWssUrl()
+              viewerIp: latestViewer.localIp || latestViewer.publicIp
             };
 
             room.quest.ws.send(JSON.stringify(netPayload));
@@ -533,46 +505,4 @@ server.listen(PORT, '0.0.0.0', () => {
   // Initial attempt and periodic check for USB cable plug/unplug
   setupAdbReverse();
   setInterval(setupAdbReverse, 8000);
-
-  // Initialize Cloudflare Quick Tunnel for global access
-  startCloudTunnel();
 });
-
-function startCloudTunnel() {
-  if (process.env.NO_TUNNEL === 'true') {
-    console.log('[Cloud Tunnel] Tunnel disabled via NO_TUNNEL=true');
-    return;
-  }
-  if (process.env.CLOUD_TUNNEL_URL) {
-    cloudTunnelUrl = process.env.CLOUD_TUNNEL_URL;
-    console.log(`[Cloud Tunnel] Using custom tunnel: ${getCloudWssUrl()}`);
-    return;
-  }
-
-  console.log('[Cloud Tunnel] Starting Cloudflare Quick Tunnel for global access...');
-  try {
-    const tunnelProc = exec(`npx -y cloudflared tunnel --url http://localhost:${PORT}`);
-    function checkOutput(data) {
-      if (!data) return;
-      const text = data.toString();
-      const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-      if (match && !cloudTunnelUrl) {
-        cloudTunnelUrl = match[0];
-        const wssUrl = getCloudWssUrl();
-        console.log('=======================================================');
-        console.log('☁️  Cloudflare Public Tunnel Active (Global Streaming):');
-        console.log(`    Public Web URL: ${cloudTunnelUrl}`);
-        console.log(`    Public WSS URL: ${wssUrl}`);
-        console.log('=======================================================');
-      }
-    }
-    tunnelProc.stdout?.on('data', checkOutput);
-    tunnelProc.stderr?.on('data', checkOutput);
-    tunnelProc.on('exit', (code) => {
-      console.log(`[Cloud Tunnel] Tunnel process exited with code ${code}`);
-      cloudTunnelUrl = null;
-    });
-  } catch (e) {
-    console.warn('[Cloud Tunnel] Failed to start cloudflared:', e.message);
-  }
-}
