@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-receiver",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "serve", "web-receiver/src", "-l", "3000"],
+      "port": 3000
+    },
+    {
+      "name": "signaling-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["signaling-server/server.js"],
+      "port": 8080
+    }
+  ]
+}

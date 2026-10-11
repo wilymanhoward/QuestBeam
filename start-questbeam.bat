@@ -23,12 +23,12 @@ if exist "%ADB_PATH%" (
 )
 
 echo [3/3] Opening Web Receiver...
-start http://localhost:3000
+start http://localhost:8080
 
 echo.
 echo =======================================================
 echo  QuestBeam is running!
-echo  - Local Web Receiver: http://localhost:3000
+echo  - Local Web Receiver: http://localhost:8080
 echo  - Global Web Receiver: https://questbeam.web.app
 echo  - Now put on your Quest 3 and tap "Start Casting"!
 echo =======================================================

@@ -118,13 +118,10 @@ QuestBeam/
    ```
    *The server will display its local network IP (e.g. `192.168.0.56:8080`).*
 
-2. **Launch the Web Receiver**:
-   ```bash
-   cd web-receiver
-   npm install
-   npm start
-   ```
-   Open **`http://localhost:3000`** in Google Chrome, Edge, or Brave. You will see the QuestBeam interface displaying a room code (e.g. `Q3-CAST`).
+2. **Open the Web Receiver**:
+   The signaling server also serves the receiver page. Open **`http://localhost:8080`** in Google Chrome, Edge, or Brave. You will see the QuestBeam interface displaying a room code (e.g. `Q3-CAST`).
+
+   > The hosted receiver at `https://questbeam.web.app` can also connect to the server on your computer, but Chrome only allows it after you grant the site **Local network access** (prompt, or lock icon → Site settings). If that permission is blocked, the page cannot reach the server, so prefer `http://localhost:8080`.
 
 ---
 

@@ -2,19 +2,33 @@
  * Meta Quest 3 Web Receiver - Main Application Orchestrator
  */
 
-function getDefaultSignalingUrl() {
+const SIGNALING_PORT = 8080;
+
+function isHostedSite() {
+  const host = window.location.hostname;
+  return host.endsWith('web.app') || host.endsWith('firebaseapp.com');
+}
+
+// Ordered list of signaling servers to try. The hosted site has no server of its own,
+// so after any explicit/saved URL it falls back to the QuestBeam server on this computer.
+// Browsers allow ws://localhost from HTTPS pages, so this works from questbeam.web.app too.
+function getSignalingCandidates() {
+  const candidates = [];
+  const sigParam = new URLSearchParams(window.location.search).get('sig');
+  if (sigParam) candidates.push(sigParam);
   const saved = localStorage.getItem('quest_signaling_url');
-  if (saved) return saved;
-  if (window.location.hostname.includes('web.app') || window.location.hostname.includes('firebaseapp.com')) {
-    return 'ws://localhost:8080';
+  if (saved) candidates.push(saved);
+  if (!isHostedSite() && window.location.hostname) {
+    candidates.push(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:${SIGNALING_PORT}`);
   }
-  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname || 'localhost'}:8080`;
+  candidates.push(`ws://localhost:${SIGNALING_PORT}`, `ws://127.0.0.1:${SIGNALING_PORT}`);
+  return [...new Set(candidates)];
 }
 
 // Application State
 const state = {
   roomCode: '',
-  signalingUrl: getDefaultSignalingUrl(),
+  signalingUrl: getSignalingCandidates()[0],
   stunUrl: localStorage.getItem('quest_stun_url') || 'stun:stun.l.google.com:19302',
   turnUrl: localStorage.getItem('quest_turn_url') || '',
   ws: null,
@@ -112,6 +126,34 @@ function updateNetworkStatus(mode, desc, rttMs) {
     elements.statNetworkMode.textContent = 'Disconnected';
     elements.statNetworkMode.style.color = 'var(--text-secondary)';
     elements.statNetworkDesc.textContent = 'Waiting for Quest 3 headset connection';
+    applyServerStatus();
+  }
+}
+
+// Signaling server reachability, shown in the pill while no stream is active
+function setServerStatus(status) {
+  state.serverStatus = status;
+  if (state.networkMode === 'idle' || status !== 'online') {
+    applyServerStatus();
+  }
+}
+
+function applyServerStatus() {
+  if (state.isStreaming) return;
+  if (state.serverStatus === 'connecting') {
+    elements.networkPillText.textContent = 'Connecting to server...';
+    elements.statNetworkDesc.textContent = `Trying ${state.signalingUrl}`;
+  } else if (state.serverStatus === 'offline') {
+    elements.networkPillText.textContent = 'Server offline';
+    elements.statNetworkDesc.textContent = 'Start the QuestBeam server on this computer (start-questbeam.bat). Retrying automatically...';
+    appendLocalReceiverLink();
+  } else if (state.serverStatus === 'blocked') {
+    elements.networkPillText.textContent = 'Local access blocked';
+    elements.statNetworkDesc.textContent = 'Your browser blocked this site from reaching the QuestBeam server on this computer. Allow "Local network access" in the site settings (lock icon), or';
+    appendLocalReceiverLink();
+  } else if (state.serverStatus === 'online') {
+    elements.networkPillText.textContent = 'Server connected';
+    elements.statNetworkDesc.textContent = `Waiting for Quest 3 in room ${state.roomCode}`;
   }
 }
 
@@ -159,23 +201,87 @@ function renderQrCode(text) {
   }
 }
 
+// The receiver page served by the local server itself never needs the local network permission
+function appendLocalReceiverLink() {
+  if (!isHostedSite()) return;
+  const url = `http://localhost:${SIGNALING_PORT}/#room=${encodeURIComponent(state.roomCode)}`;
+  const link = document.createElement('a');
+  link.href = url;
+  link.textContent = `open ${url.split('/#')[0]}`;
+  link.style.color = 'var(--accent-meta)';
+  elements.statNetworkDesc.append(' ', link);
+}
+
+// Chrome asks before a public site may reach localhost, and a "Block" there fails exactly
+// like a stopped server, so check the permission to tell the two apart
+async function isLocalAccessBlocked() {
+  if (!isHostedSite() || !navigator.permissions) return false;
+  for (const name of ['loopback-network', 'local-network-access']) {
+    try {
+      if ((await navigator.permissions.query({ name })).state === 'denied') return true;
+    } catch (_) {
+      // Permission name not supported by this browser
+    }
+  }
+  return false;
+}
+
+async function reportServerUnreachable() {
+  const blocked = await isLocalAccessBlocked();
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+  setServerStatus(blocked ? 'blocked' : 'offline');
+  if (!signalingRetry.warnedOffline && state.controls) {
+    state.controls.showToast(blocked
+      ? `Browser blocked access to this computer. Open http://localhost:${SIGNALING_PORT} instead.`
+      : 'QuestBeam server not found on this computer. Retrying...');
+    signalingRetry.warnedOffline = true;
+  }
+}
+
 // WebSocket Signaling Client
-function connectSignaling() {
+// Cycles through getSignalingCandidates() and keeps retrying, so the page connects
+// whenever the local server comes up instead of sitting on a dead socket forever.
+const signalingRetry = { timer: null, index: 0, backoffMs: 1000, warnedOffline: false };
+
+function connectSignaling({ resetCandidates = true } = {}) {
+  clearTimeout(signalingRetry.timer);
+  if (resetCandidates) {
+    signalingRetry.index = 0;
+    signalingRetry.backoffMs = 1000;
+  }
+
   if (state.ws) {
+    // Detach handlers first so closing an old socket doesn't schedule a reconnect
+    state.ws.onopen = state.ws.onmessage = state.ws.onclose = state.ws.onerror = null;
     state.ws.close();
+    state.ws = null;
+  }
+
+  const candidates = getSignalingCandidates();
+  state.signalingUrl = candidates[signalingRetry.index % candidates.length];
+  if (resetCandidates || !['offline', 'blocked'].includes(state.serverStatus)) {
+    setServerStatus('connecting');
   }
 
   console.log(`[Signaling] Connecting to ${state.signalingUrl}...`);
+  let ws;
   try {
-    state.ws = new WebSocket(state.signalingUrl);
+    ws = new WebSocket(state.signalingUrl);
   } catch (err) {
-    state.controls.showToast('Could not reach signaling server: ' + err.message);
+    console.warn('[Signaling] Invalid signaling URL:', state.signalingUrl, err.message);
+    scheduleSignalingReconnect(true);
     return;
   }
+  state.ws = ws;
+  let wasOpen = false;
 
-  state.ws.onopen = () => {
+  ws.onopen = () => {
+    wasOpen = true;
+    signalingRetry.backoffMs = 1000;
+    signalingRetry.warnedOffline = false;
+    setServerStatus('online');
     console.log('[Signaling] Connected! Joining room:', state.roomCode);
-    state.ws.send(JSON.stringify({
+    ws.send(JSON.stringify({
       type: 'join',
       roomCode: state.roomCode,
       role: 'viewer'
@@ -223,6 +329,12 @@ function connectSignaling() {
           }
           break;
 
+        case 'error':
+        case 'auth-failed':
+          console.warn('[Signaling] Server rejected request:', data.message);
+          state.controls.showToast(data.message || 'Signaling server error');
+          break;
+
         case 'peer-disconnected':
           console.log('[Signaling] Quest 3 disconnected');
           handleStreamStop('Headset disconnected');
@@ -253,13 +365,34 @@ function connectSignaling() {
     }
   };
 
-  state.ws.onclose = () => {
+  ws.onclose = () => {
     console.log('[Signaling] Connection closed');
+    if (state.ws !== ws) return;
+    state.ws = null;
+    // A socket that was working gets retried as-is; a failed attempt moves on to the next candidate
+    scheduleSignalingReconnect(!wasOpen);
   };
 
-  state.ws.onerror = (e) => {
-    console.warn('[Signaling] Connection error:', e);
+  ws.onerror = () => {
+    console.warn(`[Signaling] Could not connect to ${state.signalingUrl}`);
   };
+}
+
+function scheduleSignalingReconnect(advanceCandidate) {
+  const candidates = getSignalingCandidates();
+  let delay = 300;
+  if (advanceCandidate) {
+    signalingRetry.index++;
+    const completedFullPass = signalingRetry.index % candidates.length === 0;
+    if (completedFullPass) {
+      reportServerUnreachable();
+      delay = signalingRetry.backoffMs;
+      signalingRetry.backoffMs = Math.min(signalingRetry.backoffMs * 2, 8000);
+    }
+  } else {
+    delay = 1000;
+  }
+  signalingRetry.timer = setTimeout(() => connectSignaling({ resetCandidates: false }), delay);
 }
 
 // Initialize WebRTC receiver
@@ -413,17 +546,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Settings Modal
   elements.btnOpenSettings.addEventListener('click', () => {
+    elements.inputSignalingUrl.value = localStorage.getItem('quest_signaling_url') || state.signalingUrl;
     elements.modalSettings.classList.add('open');
   });
   elements.btnCloseSettings.addEventListener('click', () => {
     elements.modalSettings.classList.remove('open');
   });
   elements.btnSaveSettings.addEventListener('click', () => {
-    state.signalingUrl = elements.inputSignalingUrl.value.trim();
+    const signalingUrl = elements.inputSignalingUrl.value.trim();
     state.stunUrl = elements.inputStunUrl.value.trim();
     state.turnUrl = elements.inputTurnUrl.value.trim();
 
-    localStorage.setItem('quest_signaling_url', state.signalingUrl);
+    // An empty field means "auto-detect the local server"
+    if (signalingUrl) {
+      localStorage.setItem('quest_signaling_url', signalingUrl);
+    } else {
+      localStorage.removeItem('quest_signaling_url');
+    }
     localStorage.setItem('quest_stun_url', state.stunUrl);
     localStorage.setItem('quest_turn_url', state.turnUrl);
 

@@ -3,6 +3,7 @@ const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const cors = require('cors');
 const os = require('os');
+const path = require('path');
 const dgram = require('dgram');
 const { exec } = require('child_process');
 const config = require('./config');
@@ -85,6 +86,11 @@ app.get('/ip', (req, res) => {
   res.json({ clientIp: remoteIp });
 });
 
+// Serve the web receiver from this server (http://localhost:8080). Browsers block public
+// HTTPS sites like questbeam.web.app from reaching localhost unless the user grants
+// "local network access", so the locally served page is the reliable way to connect.
+app.use(express.static(path.join(__dirname, '..', 'web-receiver', 'src')));
+
 const server = http.createServer(app);
 
 // Security: Allow up to 16 MB for full-resolution HD screenshot payloads
@@ -140,6 +146,13 @@ function evaluateNetworkTopology(questPeer, viewerPeer) {
                         questPeer.publicIp === '127.0.0.1' ||
                         questPeer.publicIp === '::1');
 
+  // A viewer on this server's own machine (browser opened via localhost) shares the
+  // server's network, so a Quest reaching the server from a private address is on the same LAN
+  const isLoopback = (ip) => Boolean(ip) && (ip === '::1' || ip.includes('127.0.0.1'));
+  const isPrivate = (ip) => /^(::ffff:)?(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip || '');
+  const viewerOnServerHost = isLoopback(viewerPeer.publicIp) &&
+                             (isPrivate(questPeer.publicIp) || isPrivate(questPeer.localIp));
+
   // Check private subnets (e.g. 192.168.1.x)
   let sameSubnet = false;
   if (questPeer.localIp && viewerPeer.localIp) {
@@ -150,7 +163,7 @@ function evaluateNetworkTopology(questPeer, viewerPeer) {
     }
   }
 
-  if (samePublicIp || sameSubnet) {
+  if (samePublicIp || sameSubnet || viewerOnServerHost) {
     return {
       mode: 'lan',
       description: 'Devices detected on the same Local Network (LAN)',
@@ -492,6 +505,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`QuestBeam Hardened Signaling & Relay Server running on:`);
   console.log(`Local:   http://localhost:${PORT}`);
+  console.log(`Web Receiver: http://localhost:${PORT}  <- open this in your browser`);
   for (const { interface: iface, address } of getLocalIpAddresses()) {
     console.log(`Network: http://${address}:${PORT} (${iface})`);
   }
